@@ -2,13 +2,48 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+from StructIQ.config import settings
 from StructIQ.generators.json_writer import read_json_file
+from StructIQ.llm.client import OpenAIClient
 from StructIQ.reporting.svg_generator import generate_dependency_svg
 
 
 class ReportGenerator:
+    def _generate_narrative(
+        self, system_summary: str, anti_patterns: list, decision: str, plan_mode: str
+    ) -> str:
+        if not settings.enable_llm:
+            return ""
+        payload = {
+            "system_summary": system_summary[:500],
+            "anti_pattern_count": len(anti_patterns),
+            "anti_pattern_types": list(
+                {ap.get("type") for ap in anti_patterns if isinstance(ap, dict)}
+            )[:8],
+            "high_severity_count": sum(
+                1
+                for ap in anti_patterns
+                if isinstance(ap, dict) and ap.get("severity") == "high"
+            ),
+            "decision": decision,
+            "plan_mode": plan_mode,
+        }
+        prompt = (
+            "You are a software architecture advisor writing for a technical audience. "
+            "Return JSON with a single key 'narrative' containing a 3-5 sentence plain-English "
+            "summary of this codebase's architectural health. Lead with the most critical finding. "
+            "End with one sentence on what the modernization plan addresses. "
+            "Do not use bullet points, markdown, or code. Write in flowing prose."
+        )
+        try:
+            response = OpenAIClient().generate_json(prompt, json.dumps(payload))
+            return str(response.get("narrative", "")).strip() if isinstance(response, dict) else ""
+        except Exception:
+            return ""
+
     def generate(self, run_dir: str, run_id: str) -> str:
         run_path = Path(run_dir)
         output = read_json_file(str(run_path / "output.json"), {})
@@ -56,6 +91,9 @@ class ReportGenerator:
         tasks = plan.get("tasks") or []
         dominated_tasks = plan.get("dominated_tasks") or []
         reason = str(plan.get("reason", "") or "")
+        narrative = self._generate_narrative(
+            system_summary, anti_patterns, decision, plan_mode
+        )
 
         def esc(val: object) -> str:
             text = str(val)
@@ -189,6 +227,7 @@ class ReportGenerator:
         <div class="card"><div style="color:#94a3b8;font-size:12px">Anti-patterns found</div><div style="font-size:26px;font-weight:700">{anti_count}</div></div>
         <div class="card"><div style="color:#94a3b8;font-size:12px">Decision</div><div style="font-size:18px;font-weight:700;color:{decision_color}">{esc(decision_label)}</div></div>
       </div>
+      {"<div class='surface' style='margin-top:12px;margin-bottom:4px;color:#e2e8f0;font-size:15px;line-height:1.6'>" + esc(narrative) + "</div>" if narrative else ""}
       <div class="surface" style="margin-top:12px;color:#cbd5e1">{esc(system_summary or "No system summary available.")}</div>
     </section>
 
@@ -221,7 +260,7 @@ class ReportGenerator:
       </div>
       {"<div class='surface' style='margin-bottom:12px;color:#f1f5f9'>" + esc(plan_summary) + "</div>" if plan_summary else ""}
       {("<div class='surface' style='margin-bottom:12px;color:#cbd5e1'>" + esc(reason) + "</div>") if decision == "no_action_required" and reason else ""}
-      {("<div class='surface' style='margin-bottom:12px;color:#cbd5e1'><strong>Dominated tasks:</strong><pre style='white-space:pre-wrap'>" + esc(dominated_tasks) + "</pre></div>") if decision == "no_action_required" and dominated_tasks else ""}
+      {("<div class='surface' style='margin-bottom:12px'><strong style='color:#f1f5f9'>Dominated tasks (removed as redundant):</strong>" + "".join(f"<div style='color:#94a3b8;font-size:13px;margin-top:4px'>{esc(t.get('type',''))} — {esc(', '.join(str(x) for x in (t.get('target') or [])))} <span style='color:#475569'>({esc(t.get('dominated_by',''))})</span></div>" for t in dominated_tasks if isinstance(t, dict)) + "</div>") if decision == "no_action_required" and dominated_tasks else ""}
       {"<div class='surface'>" + tasks_table() + "</div>" if decision != "no_action_required" else ""}
       {"<div class='surface' style='margin-top:12px'>" + render_execution_plan() + "</div>" if decision != "no_action_required" else ""}
     </section>

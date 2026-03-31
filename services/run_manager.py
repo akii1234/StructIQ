@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import uuid
@@ -19,7 +20,7 @@ from StructIQ.scanner.module_extractor import ModuleExtractor
 from StructIQ.services.cache_manager import CacheManager
 from StructIQ.utils.logger import get_logger
 
-DATA_DIR = Path("data/runs")
+DATA_DIR = Path(os.getenv("DATA_DIR", "data/runs"))
 
 
 class RunManager:
@@ -171,6 +172,29 @@ class RunManager:
             return None
         report_path = DATA_DIR / run_id / "report.html"
         return str(report_path) if report_path.exists() else None
+
+    def list_runs(self) -> list[dict]:
+        """Return summary list of all known runs from disk."""
+        runs = []
+        if not DATA_DIR.exists():
+            return runs
+        for run_dir in sorted(DATA_DIR.iterdir(), reverse=True):
+            if not run_dir.is_dir():
+                continue
+            run_id = run_dir.name
+            if not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", run_id
+            ):
+                continue
+            snapshot = read_json_file(str(run_dir / "snapshot.json"), {})
+            runs.append(
+                {
+                    "run_id": run_id,
+                    "status": snapshot.get("status", "unknown"),
+                    "progress": snapshot.get("progress", {}),
+                }
+            )
+        return runs
 
     def _execute_run(self, run_id: str, resume: bool) -> None:
         """Run orchestrator and update run state."""

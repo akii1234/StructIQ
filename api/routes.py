@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import os
 import threading
 import time
@@ -44,12 +45,34 @@ class AnalyzeRequest(BaseModel):
         return str(resolved)
 
 
+class ExplainRequest(BaseModel):
+    question: str
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("question must not be empty")
+        if len(value) > 500:
+            raise ValueError("question must be 500 characters or fewer")
+        return value
+
+
 run_manager = RunManager()
 if IS_API_MODE and not os.getenv("API_KEY"):
     raise RuntimeError(
         "API_KEY environment variable must be set when APP_MODE=api"
     )
-app = FastAPI(title="StructIQ Service")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    run_manager.shutdown()
+
+
+app = FastAPI(title="StructIQ Service", lifespan=lifespan)
 active_runs = 0
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "5"))
 _active_runs_lock = threading.Lock()
@@ -72,9 +95,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.on_event("shutdown")
-def on_shutdown() -> None:
-    run_manager.shutdown()
+@app.get("/runs")
+def list_runs(x_api_key: str | None = Header(default=None)) -> list[dict]:
+    """List all runs with their current status."""
+    validate_api_key(x_api_key)
+    return run_manager.list_runs()
 
 
 def _release_slot_when_done(run_id: str) -> None:
@@ -249,3 +274,71 @@ def report(run_id: str, x_api_key: str | None = Header(default=None)) -> str:
         return Path(html).read_text(encoding="utf-8")
     except ReportPipelineError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/explain/{run_id}")
+def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header(default=None)) -> dict:
+    """Answer a plain-English question about a completed run using the modernization plan."""
+    validate_api_key(x_api_key)
+    status_payload = run_manager.get_status(run_id)
+    run_status = status_payload.get("status")
+    if run_status == "not_found" or not run_status:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run_status != "completed":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Explanation not available — run status: {run_status}",
+        )
+
+    plan = run_manager.get_modernization_plan(run_id)
+    insights = run_manager.get_architecture_insights(run_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Modernization plan not found for this run")
+
+    from StructIQ.config import settings
+    if not settings.enable_llm:
+        raise HTTPException(status_code=503, detail="LLM is disabled — set ENABLE_LLM=true to use this endpoint")
+
+    from StructIQ.llm.client import OpenAIClient
+    import json
+
+    context_payload = {
+        "system_summary": str((insights or {}).get("system_summary", ""))[:600],
+        "decision": plan.get("decision", ""),
+        "plan_mode": plan.get("plan_mode", ""),
+        "plan_summary": str(plan.get("plan_summary", ""))[:400],
+        "sequencing_notes": str(plan.get("sequencing_notes", ""))[:300],
+        "task_count": len(plan.get("tasks") or []),
+        "tasks": [
+            {
+                "type": t.get("type"),
+                "target": (t.get("target") or [])[:3],
+                "priority": t.get("priority"),
+                "why": str(t.get("why", ""))[:200],
+            }
+            for t in (plan.get("tasks") or [])[:10]
+            if isinstance(t, dict)
+        ],
+        "anti_pattern_count": len((insights or {}).get("anti_patterns") or []),
+    }
+
+    system_prompt = (
+        "You are a software architecture advisor. "
+        "You are given a modernization plan for a codebase analysis run. "
+        "Answer the user's question in plain English, in 2-4 sentences. "
+        "Be specific and actionable. Do not use markdown or bullet points. "
+        "Return JSON with a single key 'answer'."
+    )
+    user_message = f"Context: {json.dumps(context_payload)}\n\nQuestion: {request.question}"
+
+    try:
+        client = OpenAIClient()
+        response = client.generate_json(system_prompt, user_message)
+        answer = str(response.get("answer", "")).strip() if isinstance(response, dict) else ""
+        if not answer:
+            raise HTTPException(status_code=500, detail="LLM returned an empty answer")
+        return {"run_id": run_id, "question": request.question, "answer": answer}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc

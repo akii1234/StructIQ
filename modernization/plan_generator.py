@@ -155,7 +155,12 @@ class PlanGenerator:
         if not all(
             isinstance(x, dict) for x in [tasks_result, changes_result, impact_result]
         ):
-            return {"execution_plan": [], "plan_summary": "", "plan_mode": "direct"}
+            return {
+                "execution_plan": [],
+                "plan_summary": "",
+                "sequencing_notes": "",
+                "plan_mode": "direct",
+            }
 
         context = context or {}
         tasks = tasks_result.get("tasks") or []
@@ -232,6 +237,7 @@ class PlanGenerator:
 
         # Optional LLM summary.
         plan_summary = ""
+        sequencing_notes = ""
         if enable_llm and settings.enable_llm and execution_plan:
             try:
                 task_count = len(tasks_result.get("tasks") or [])
@@ -244,8 +250,11 @@ class PlanGenerator:
                 }
                 prompt = (
                     "You are a software modernization advisor. "
-                    "Return JSON with a single key 'summary' containing a 2-3 sentence "
+                    "Return JSON with keys 'summary' and 'sequencing_notes'. "
+                    "'summary' must contain a 2-3 sentence "
                     "plain-English executive summary of this modernization plan. "
+                    "'sequencing_notes' must be a 1-2 sentence explanation of which changes "
+                    "should be done first and why (including what they unblock or risk of delay). "
                     "Be concise and actionable. Do not include code or markdown."
                 )
                 response = self._get_client().generate_json(
@@ -253,11 +262,13 @@ class PlanGenerator:
                 )
                 if isinstance(response, dict):
                     plan_summary = str(response.get("summary", "")).strip()
+                    sequencing_notes = str(response.get("sequencing_notes", "")).strip()
             except Exception:
                 pass
 
         return {
             "execution_plan": execution_plan,
             "plan_summary": plan_summary,
+            "sequencing_notes": sequencing_notes,
             "plan_mode": "staged" if use_staged else "direct",
         }

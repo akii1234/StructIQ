@@ -20,10 +20,10 @@ class RecommendationEngine:
 
     def generate(self, input_data: dict) -> dict:
         if not settings.enable_llm:
-            return {"recommendations": []}
+            return {"recommendations": [], "root_cause_narrative": ""}
 
         if not isinstance(input_data, dict):
-            return {"recommendations": []}
+            return {"recommendations": [], "root_cause_narrative": ""}
 
         clusters = input_data.get("clusters") or {}
         anti_patterns = input_data.get("anti_patterns") or []
@@ -46,7 +46,10 @@ class RecommendationEngine:
 
         prompt = (
             "You are an architecture advisor. "
-            "Return JSON only with key 'recommendations' as an array of objects. "
+            "Return JSON only with top-level keys 'recommendations' and 'root_cause_narrative'. "
+            "'root_cause_narrative' must be a single string of 2-3 sentences connecting "
+            "all detected anti-patterns into one coherent architectural story. "
+            "'recommendations' must be an array of objects. "
             "Each recommendation object must include: "
             "'message' (concise action), "
             "'based_on' (array of anti-pattern types/reasons), "
@@ -58,11 +61,17 @@ class RecommendationEngine:
         try:
             response = self._get_client().generate_json(prompt, json.dumps(payload))
         except Exception:
-            return {"recommendations": []}
+            return {"recommendations": [], "root_cause_narrative": ""}
+
+        narrative = (
+            str(response.get("root_cause_narrative", "")).strip()
+            if isinstance(response, dict)
+            else ""
+        )
 
         recs = response.get("recommendations") if isinstance(response, dict) else []
         if not isinstance(recs, list):
-            return {"recommendations": []}
+            return {"recommendations": [], "root_cause_narrative": narrative}
 
         cleaned: List[Dict[str, Any]] = []
         for item in recs:
@@ -95,4 +104,4 @@ class RecommendationEngine:
                 }
             )
 
-        return {"recommendations": cleaned}
+        return {"recommendations": cleaned, "root_cause_narrative": narrative}

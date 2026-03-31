@@ -20,6 +20,8 @@ def _build_adjacency(graph: dict) -> Dict[str, List[str]]:
         src, tgt = str(src), str(tgt)
         adj.setdefault(src, [])
         adj.setdefault(tgt, [])
+        if src == tgt:
+            continue
         if tgt not in adj[src]:
             adj[src].append(tgt)
         if src not in adj[tgt]:
