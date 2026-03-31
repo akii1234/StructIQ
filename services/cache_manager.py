@@ -9,8 +9,8 @@ from typing import Any, Dict
 
 from filelock import FileLock, Timeout
 
-from app.generators.json_writer import read_json_file
-from app.utils.logger import get_logger
+from StructIQ.generators.json_writer import read_json_file
+from StructIQ.utils.logger import get_logger
 
 
 class CacheManager:

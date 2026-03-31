@@ -8,16 +8,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict
 
-from app.agents.summarizer import Summarizer
-from app.config import settings
-from app.core.orchestrator import DiscoveryOrchestrator
-from app.generators.json_writer import read_json_file, write_json_output
-from app.llm.client import OpenAIClient
-from app.scanner.file_classifier import FileClassifier
-from app.scanner.file_scanner import FileScanner
-from app.scanner.module_extractor import ModuleExtractor
-from app.services.cache_manager import CacheManager
-from app.utils.logger import get_logger
+from StructIQ.agents.summarizer import Summarizer
+from StructIQ.config import settings
+from StructIQ.core.orchestrator import DiscoveryOrchestrator
+from StructIQ.generators.json_writer import read_json_file, write_json_output
+from StructIQ.llm.client import OpenAIClient
+from StructIQ.scanner.file_classifier import FileClassifier
+from StructIQ.scanner.file_scanner import FileScanner
+from StructIQ.scanner.module_extractor import ModuleExtractor
+from StructIQ.services.cache_manager import CacheManager
+from StructIQ.utils.logger import get_logger
 
 DATA_DIR = Path("data/runs")
 
@@ -227,7 +227,7 @@ class RunManager:
 
             phase2_error: str | None = None
             try:
-                from app.dependency.pipeline import (
+                from StructIQ.dependency.pipeline import (
                     run_dependency_pipeline,
                     DependencyPipelineError,
                 )
@@ -253,7 +253,7 @@ class RunManager:
 
             phase3_error: str | None = None
             try:
-                from app.architecture.pipeline import (
+                from StructIQ.architecture.pipeline import (
                     run_architecture_pipeline,
                     ArchitecturePipelineError,
                 )
@@ -291,7 +291,7 @@ class RunManager:
 
             phase4_error: str | None = None
             try:
-                from app.modernization.pipeline import (
+                from StructIQ.modernization.pipeline import (
                     run_modernization_pipeline,
                     ModernizationPipelineError,
                 )

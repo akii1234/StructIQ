@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import List
 
-from app.config import IGNORED_DIRECTORIES, SUPPORTED_EXTENSIONS
+from StructIQ.config import IGNORED_DIRECTORIES, SUPPORTED_EXTENSIONS
 
 
 class FileScanner:

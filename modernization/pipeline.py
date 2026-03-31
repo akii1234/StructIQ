@@ -10,12 +10,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.generators.json_writer import read_json_file, write_json_output
-from app.modernization.change_generator import ChangeGenerator
-from app.modernization.impact_analyzer import ImpactAnalyzer
-from app.modernization.plan_generator import PlanGenerator
-from app.modernization.planner import ModernizationPlanner
-from app.utils.logger import get_logger
+from StructIQ.generators.json_writer import read_json_file, write_json_output
+from StructIQ.modernization.change_generator import ChangeGenerator
+from StructIQ.modernization.impact_analyzer import ImpactAnalyzer
+from StructIQ.modernization.plan_generator import PlanGenerator
+from StructIQ.modernization.planner import ModernizationPlanner
+from StructIQ.utils.logger import get_logger
 
 
 class ModernizationPipelineError(RuntimeError):

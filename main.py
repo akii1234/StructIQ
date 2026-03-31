@@ -1,4 +1,4 @@
-"""CLI entrypoint for AI Modernization Engine discovery phase."""
+"""CLI entrypoint for StructIQ discovery phase."""
 
 from __future__ import annotations
 
@@ -7,21 +7,21 @@ from pathlib import Path
 import uuid
 
 import uvicorn
-from app.api.routes import app as api_app
-from app.agents.summarizer import Summarizer
-from app.config import settings
-from app.core.orchestrator import DiscoveryOrchestrator
-from app.llm.client import OpenAIClient
-from app.scanner.file_classifier import FileClassifier
-from app.scanner.file_scanner import FileScanner
-from app.scanner.module_extractor import ModuleExtractor
-from app.services.cache_manager import CacheManager
-from app.utils.logger import get_logger
+from StructIQ.api.routes import app as api_app
+from StructIQ.agents.summarizer import Summarizer
+from StructIQ.config import settings
+from StructIQ.core.orchestrator import DiscoveryOrchestrator
+from StructIQ.llm.client import OpenAIClient
+from StructIQ.scanner.file_classifier import FileClassifier
+from StructIQ.scanner.file_scanner import FileScanner
+from StructIQ.scanner.module_extractor import ModuleExtractor
+from StructIQ.services.cache_manager import CacheManager
+from StructIQ.utils.logger import get_logger
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build command-line argument parser."""
-    parser = argparse.ArgumentParser(description="AI Modernization Engine - Phase 1")
+    parser = argparse.ArgumentParser(description="StructIQ - Phase 1")
     parser.add_argument(
         "project_directory",
         nargs="?",
@@ -86,7 +86,7 @@ def run_cli_sync(project_directory: str, output_path: str, model: str) -> None:
     cache_manager.persist()
     run_id = str(uuid.uuid4())
     try:
-        from app.dependency.pipeline import (
+        from StructIQ.dependency.pipeline import (
             run_dependency_pipeline,
             DependencyPipelineError,
         )
@@ -111,7 +111,7 @@ def run_cli_sync(project_directory: str, output_path: str, model: str) -> None:
         )
 
     try:
-        from app.architecture.pipeline import (
+        from StructIQ.architecture.pipeline import (
             run_architecture_pipeline,
             ArchitecturePipelineError,
         )
@@ -132,7 +132,7 @@ def run_cli_sync(project_directory: str, output_path: str, model: str) -> None:
         )
 
     try:
-        from app.modernization.pipeline import (
+        from StructIQ.modernization.pipeline import (
             run_modernization_pipeline,
             ModernizationPipelineError,
         )

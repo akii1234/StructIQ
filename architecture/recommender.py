@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
-from app.config import settings
-from app.llm.client import OpenAIClient
+from StructIQ.config import settings
+from StructIQ.llm.client import OpenAIClient
 
 
 class RecommendationEngine:

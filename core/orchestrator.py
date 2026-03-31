@@ -7,25 +7,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from app.agents.summarizer import Summarizer
-from app.architecture.analyzer import ArchitectureAnalyzer
-from app.architecture.clustering import ClusteringEngine
-from app.architecture.graph_processor import GraphProcessor
-from app.architecture.recommender import RecommendationEngine
-from app.config import settings
-from app.context.context_manager import ContextManager
-from app.core.state_manager import DiscoveryState
-from app.generators.json_writer import (
+from StructIQ.agents.summarizer import Summarizer
+from StructIQ.architecture.analyzer import ArchitectureAnalyzer
+from StructIQ.architecture.clustering import ClusteringEngine
+from StructIQ.architecture.graph_processor import GraphProcessor
+from StructIQ.architecture.recommender import RecommendationEngine
+from StructIQ.config import settings
+from StructIQ.context.context_manager import ContextManager
+from StructIQ.core.state_manager import DiscoveryState
+from StructIQ.generators.json_writer import (
     read_json_file,
     write_json_output,
     write_progress_snapshot,
 )
-from app.scanner.file_classifier import FileClassifier
-from app.scanner.file_scanner import FileScanner
-from app.scanner.module_extractor import ModuleExtractor
-from app.utils.content_utils import is_relevant_file
-from app.utils.logger import get_logger, log_file_event
-from app.utils.static_analyzer import analyze_text, get_file_importance
+from StructIQ.scanner.file_classifier import FileClassifier
+from StructIQ.scanner.file_scanner import FileScanner
+from StructIQ.scanner.module_extractor import ModuleExtractor
+from StructIQ.utils.content_utils import is_relevant_file
+from StructIQ.utils.logger import get_logger, log_file_event
+from StructIQ.utils.static_analyzer import analyze_text, get_file_importance
 
 
 class DiscoveryOrchestrator:

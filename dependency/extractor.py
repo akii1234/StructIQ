@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from app.utils.static_analyzer import PYTHON_STDLIB
+from StructIQ.utils.static_analyzer import PYTHON_STDLIB
 
 
 _COMMENT_LINE_PREFIXES = ("#", "//", "/*", "*")

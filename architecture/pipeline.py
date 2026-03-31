@@ -9,12 +9,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.architecture.analyzer import ArchitectureAnalyzer
-from app.architecture.clustering import ClusteringEngine
-from app.architecture.graph_processor import GraphProcessor
-from app.architecture.recommender import RecommendationEngine
-from app.generators.json_writer import read_json_file, write_json_output
-from app.utils.logger import get_logger
+from StructIQ.architecture.analyzer import ArchitectureAnalyzer
+from StructIQ.architecture.clustering import ClusteringEngine
+from StructIQ.architecture.graph_processor import GraphProcessor
+from StructIQ.architecture.recommender import RecommendationEngine
+from StructIQ.generators.json_writer import read_json_file, write_json_output
+from StructIQ.utils.logger import get_logger
 
 
 class ArchitecturePipelineError(RuntimeError):

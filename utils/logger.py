@@ -1,4 +1,4 @@
-"""Logging utilities for the AI Modernization Engine."""
+"""Logging utilities for StructIQ."""
 
 from __future__ import annotations
 

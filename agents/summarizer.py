@@ -10,18 +10,18 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from openai import OpenAIError
 
-from app.config import settings
-from app.llm.client import OpenAIClient
-from app.services.cache_manager import CacheManager
-from app.utils.content_extractor import extract_relevant_content
-from app.utils.content_utils import (
+from StructIQ.config import settings
+from StructIQ.llm.client import OpenAIClient
+from StructIQ.services.cache_manager import CacheManager
+from StructIQ.utils.content_extractor import extract_relevant_content
+from StructIQ.utils.content_utils import (
     chunk_text,
     extract_lightweight_config_keys,
     get_file_hash,
     is_relevant_file,
 )
-from app.utils.logger import get_logger
-from app.utils.static_analyzer import analyze_file, get_file_importance
+from StructIQ.utils.logger import get_logger
+from StructIQ.utils.static_analyzer import analyze_file, get_file_importance
 
 
 def _parse_batch_row_id(val: Any) -> Optional[int]:

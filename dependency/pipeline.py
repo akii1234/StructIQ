@@ -4,10 +4,10 @@ import logging
 from pathlib import Path
 from typing import Tuple
 
-from app.dependency.analyzer import analyze_graph
-from app.dependency.graph_builder import build_graph
-from app.generators.json_writer import read_json_file, write_json_output
-from app.utils.logger import get_logger
+from StructIQ.dependency.analyzer import analyze_graph
+from StructIQ.dependency.graph_builder import build_graph
+from StructIQ.generators.json_writer import read_json_file, write_json_output
+from StructIQ.utils.logger import get_logger
 
 
 class DependencyPipelineError(RuntimeError):

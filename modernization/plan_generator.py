@@ -6,8 +6,8 @@ import json
 import logging
 from typing import Any, Dict, List
 
-from app.config import settings
-from app.llm.client import OpenAIClient
+from StructIQ.config import settings
+from StructIQ.llm.client import OpenAIClient
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -10,8 +10,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, field_validator
 
-from app.config import IS_API_MODE
-from app.services.run_manager import RunManager
+from StructIQ.config import IS_API_MODE
+from StructIQ.services.run_manager import RunManager
 
 
 class AnalyzeRequest(BaseModel):
@@ -48,7 +48,7 @@ if IS_API_MODE and not os.getenv("API_KEY"):
     raise RuntimeError(
         "API_KEY environment variable must be set when APP_MODE=api"
     )
-app = FastAPI(title="AI Modernization Engine Service")
+app = FastAPI(title="StructIQ Service")
 active_runs = 0
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "5"))
 _active_runs_lock = threading.Lock()

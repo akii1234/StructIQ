@@ -6,7 +6,7 @@ import os
 import re
 from typing import List, Set
 
-from app.config import settings
+from StructIQ.config import settings
 
 
 _PY_MAIN_GUARD = re.compile(

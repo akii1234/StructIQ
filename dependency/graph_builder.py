@@ -9,7 +9,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.dependency.extractor import extract_imports
+from StructIQ.dependency.extractor import extract_imports
 
 
 def _to_abs_str(p: Path) -> str:

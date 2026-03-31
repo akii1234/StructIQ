@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Set
 
-from app.generators.json_writer import read_json_file, write_json_output
+from StructIQ.generators.json_writer import read_json_file, write_json_output
 
 
 DEFAULT_CONTEXT: Dict[str, Any] = {
-    "project_name": "AI Modernization Engine",
+    "project_name": "StructIQ",
     "last_updated": "",
     "current_phase": "Phase 1",
     "capabilities": [
