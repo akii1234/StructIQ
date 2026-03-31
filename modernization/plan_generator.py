@@ -43,9 +43,46 @@ _STEP_TEMPLATES: Dict[str, List[str]] = {
     ],
 }
 
+_STAGED_STEP_TEMPLATES: Dict[str, List[str]] = {
+    "break_dependency": [
+        "Introduce an abstraction interface between `{from}` and `{to}` without removing the existing import.",
+        "Migrate `{from}` to use the abstraction — keep old import as a fallback during transition.",
+        "Validate the abstraction layer works correctly in isolation.",
+        "Remove the direct import of `{to}` from `{from}` once migration is confirmed stable.",
+        "Run dependency analysis to confirm the cycle is resolved.",
+    ],
+    "split_file": [
+        "Create `{to}` as an empty module with the intended public interface documented.",
+        "Move one responsibility at a time from `{from}` to `{to}`, validating after each move.",
+        "Update callers of moved logic incrementally — do not update all imports at once.",
+        "Run integration tests after each batch of moves before proceeding.",
+        "Remove migrated code from `{from}` once all callers are updated.",
+    ],
+    "extract_utility": [
+        "Create `{to}` and move one shared dependency at a time — do not move everything at once.",
+        "Update `{from}` to use `{to}` for the first moved dependency and validate.",
+        "Repeat for each additional shared dependency, validating after each step.",
+        "Audit other files for duplicated logic and migrate them to `{to}` incrementally.",
+        "Validate all imports resolve correctly after full migration.",
+    ],
+    "extract_module": [
+        "Create the `{to}` module directory with an empty public interface.",
+        "Move the highest-coupling file first and update its references — validate before proceeding.",
+        "Move remaining files one at a time, validating module boundaries after each.",
+        "Update all external references to moved files throughout the codebase.",
+        "Run full dependency analysis to confirm no new cycles were introduced.",
+    ],
+}
 
-def _render_steps(action: str, from_target: str, to_target: str) -> List[str]:
-    templates = _STEP_TEMPLATES.get(
+
+def _render_steps(
+    action: str,
+    from_target: str,
+    to_target: str,
+    use_staged: bool = False,
+) -> List[str]:
+    template_source = _STAGED_STEP_TEMPLATES if use_staged else _STEP_TEMPLATES
+    templates = template_source.get(
         action,
         [
             f"Review `{from_target}` and apply `{action}` change.",
@@ -113,15 +150,23 @@ class PlanGenerator:
         changes_result: dict,
         impact_result: dict,
         enable_llm: bool = True,
+        context: dict | None = None,
     ) -> dict:
         if not all(
             isinstance(x, dict) for x in [tasks_result, changes_result, impact_result]
         ):
-            return {"execution_plan": [], "plan_summary": ""}
+            return {"execution_plan": [], "plan_summary": "", "plan_mode": "direct"}
 
+        context = context or {}
         tasks = tasks_result.get("tasks") or []
         changes = changes_result.get("changes") or []
         impact_list = impact_result.get("impact") or []
+        total_nodes = int(context.get("total_nodes", 0) or 0)
+        max_affected = max(
+            (imp.get("affected_count", 0) for imp in impact_list if isinstance(imp, dict)),
+            default=0,
+        )
+        use_staged = total_nodes > 300 or max_affected > 30
 
         # Build impact lookup keyed by (action, from).
         impact_by_key: Dict[tuple[str, str], dict] = {}
@@ -168,7 +213,9 @@ class PlanGenerator:
 
         execution_plan: List[str] = []
         for idx, item in enumerate(paired_sorted, start=1):
-            steps = _render_steps(item["action"], item["from"], item["to"])
+            steps = _render_steps(
+                item["action"], item["from"], item["to"], use_staged=use_staged
+            )
             execution_plan.append(
                 f"[Change {idx} — {item['action']} | risk: {item['risk']}]"
             )
@@ -212,4 +259,5 @@ class PlanGenerator:
         return {
             "execution_plan": execution_plan,
             "plan_summary": plan_summary,
+            "plan_mode": "staged" if use_staged else "direct",
         }

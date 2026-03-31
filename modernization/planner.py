@@ -338,6 +338,11 @@ class ModernizationPlanner:
                     "reason": ap_type,
                     "severity": ap.get("severity", ""),
                     "confidence": confidence,
+                    "confidence_factors": {
+                        "severity_weight": round(severity_weight, 2),
+                        "centrality": round(centrality, 2),
+                        "pattern_weight": round(pattern_weight, 2),
+                    },
                     "why": template["why"],
                     "impact_if_ignored": template["impact_if_ignored"],
                     "alternative": template["alternative"],

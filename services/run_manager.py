@@ -163,6 +163,15 @@ class RunManager:
         plan_path = DATA_DIR / run_id / "modernization_plan.json"
         return read_json_file(str(plan_path), {})
 
+    def get_report_path(self, run_id: str) -> str | None:
+        """Return path to report.html if it exists for a run."""
+        if not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", run_id
+        ):
+            return None
+        report_path = DATA_DIR / run_id / "report.html"
+        return str(report_path) if report_path.exists() else None
+
     def _execute_run(self, run_id: str, resume: bool) -> None:
         """Run orchestrator and update run state."""
         with self._lock:

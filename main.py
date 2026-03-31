@@ -53,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=8000,
         help="Port for API server.",
     )
+    parser.add_argument(
+        "--report",
+        metavar="RUN_DIR",
+        help="Generate HTML report for an existing run directory.",
+    )
     return parser
 
 
@@ -157,6 +162,17 @@ def run_cli_sync(project_directory: str, output_path: str, model: str) -> None:
 def main() -> None:
     """CLI/API entrypoint: explicit sync CLI path or API server path."""
     args = build_parser().parse_args()
+    if args.report:
+        from StructIQ.reporting.pipeline import run_report_pipeline, ReportPipelineError
+
+        try:
+            path = run_report_pipeline(
+                run_dir=args.report, run_id=Path(args.report).name
+            )
+            print(f"Report written: {path}")
+        except ReportPipelineError as exc:
+            print(f"Report generation failed: {exc}")
+        return
     if args.serve:
         run_api_server(host=args.host, port=args.port)
         return

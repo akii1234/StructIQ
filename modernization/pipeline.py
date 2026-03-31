@@ -45,6 +45,7 @@ def run_modernization_pipeline(
             raise ModernizationPipelineError(
                 f"Dependency graph missing at {graph_path}"
             )
+        total_nodes = len((graph.get("nodes") or []))
 
         logger.info("Phase 4: generating modernization tasks for run %s", run_id)
         tasks_result = ModernizationPlanner().plan(insights)
@@ -95,6 +96,7 @@ def run_modernization_pipeline(
                 "generated_at": generated_at,
                 "decision": "no_action_required",
                 "reason": reason,
+                "plan_mode": "direct",
                 "tasks": [],
                 "dominated_tasks": tasks_result.get("dominated_tasks", []),
                 "changes": [],
@@ -120,13 +122,18 @@ def run_modernization_pipeline(
 
         logger.info("Phase 4: generating execution plan")
         plan_result = PlanGenerator().generate(
-            tasks_result, changes_result, impact_result, enable_llm=enable_llm
+            tasks_result,
+            changes_result,
+            impact_result,
+            enable_llm=enable_llm,
+            context={"total_nodes": total_nodes},
         )
 
         modernization_plan = {
             "run_id": run_id,
             "generated_at": generated_at,
             "decision": "action_required",
+            "plan_mode": plan_result.get("plan_mode", "direct"),
             "tasks": tasks_result.get("tasks", []),
             "dominated_tasks": tasks_result.get("dominated_tasks", []),
             "changes": changes_result.get("changes", []),

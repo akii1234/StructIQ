@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Header
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, field_validator
 
 from StructIQ.config import IS_API_MODE
@@ -225,3 +226,26 @@ def modernization_plan(run_id: str, x_api_key: str | None = Header(default=None)
             detail="Modernization plan not available — Phase 4 did not produce output for this run",
         )
     return payload
+
+
+@app.get("/report/{run_id}", response_class=HTMLResponse)
+def report(run_id: str, x_api_key: str | None = Header(default=None)) -> str:
+    """Generate and return HTML report for a completed run."""
+    validate_api_key(x_api_key)
+    status_payload = run_manager.get_status(run_id)
+    run_status = status_payload.get("status")
+    if run_status == "not_found" or not run_status:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run_status not in {"completed"}:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Report not available — run status: {run_status}",
+        )
+    try:
+        from StructIQ.reporting.pipeline import run_report_pipeline, ReportPipelineError
+
+        run_dir = str(Path("data/runs") / run_id)
+        html = run_report_pipeline(run_dir=run_dir, run_id=run_id)
+        return Path(html).read_text(encoding="utf-8")
+    except ReportPipelineError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
