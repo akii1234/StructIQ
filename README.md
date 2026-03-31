@@ -1,71 +1,271 @@
-# StructIQ (AI Modernization Engine)
+# 🧠 StructIQ — AI Modernization Engine
 
-StructIQ is a deterministic, multi-phase code analysis pipeline:
+> Deterministic architecture intelligence for understanding, analyzing, and modernizing codebases.
 
-1. Discovery (Phase 1) — scan + summarize code (LLM used only for summaries, and can be disabled)
-2. Dependency Analysis (Phase 2) — build dependency graph + compute architecture metrics
-3. Architecture Intelligence (Phase 3) — cluster into services, detect anti-patterns, generate insights
-4. Modernization Planning (Phase 4) — generate modernization tasks, structural change intents, and an execution plan
-5. Decision Intelligence (Phase 4.5/Phase 5) — deterministic strategy selection and explainability for each task
+---
 
-## Requirements
+## 🚀 What is StructIQ?
 
-```bash
-pip install -r requirements.txt
+StructIQ is an **AI-assisted architecture intelligence engine** that helps you:
+
+* understand large codebases
+* identify architectural issues
+* generate modernization strategies
+* produce safe, explainable execution plans
+
+---
+
+## 🎯 Why StructIQ?
+
+Modern codebases are:
+
+* complex
+* tightly coupled
+* poorly documented
+
+StructIQ transforms raw code into:
+
+```text
+Code → Structure → Insights → Decisions → Modernization Plan
 ```
 
-## Environment Variables
+---
 
-- `APP_MODE` — `cli` (default) or `api`
-- `ENABLE_LLM` — enable/disable LLM usage (default: `true`)
-- `OPENAI_API_KEY` — required if `ENABLE_LLM=true`
-- `API_KEY` — required when `APP_MODE=api`
-- `ALLOWED_BASE_DIR` — required in API mode for request path validation
-- `MAX_CONCURRENT_RUNS` — API concurrency limit (default: `5`)
+## 🧩 Core Capabilities
 
-## CLI Usage
+---
 
-Run from the parent directory of `StructIQ`:
+### 🔍 1. Code Understanding (Phase 1)
 
-```bash
-cd /Users/akhiltripathi/dev
-python -m StructIQ.main /path/to/project --output data/runs/output.json
+* multi-language project scanning
+* module detection
+* file classification
+* LLM-assisted summarization (cost-optimized)
+
+---
+
+### 🧠 2. Architecture Intelligence (Phase 2–3)
+
+* dependency graph generation
+* centrality analysis
+* anti-pattern detection:
+
+  * cyclic dependencies
+  * god files
+  * high coupling
+  * weak module boundaries
+
+---
+
+### ⚙️ 3. Modernization Engine (Phase 4)
+
+* converts issues into actionable tasks
+* estimates impact and risk
+* generates structured execution plans
+* ensures:
+
+  * safety
+  * determinism
+  * explainability
+
+---
+
+### 🧠 4. Decision Intelligence (Phase 5)
+
+* evaluates multiple strategies per problem
+* selects optimal approach using deterministic scoring
+* provides alternatives with reasoning
+* introduces:
+
+  * strategy comparison
+  * confidence interpretation
+  * context-aware planning
+
+---
+
+## 🔥 Example Output
+
+```json
+{
+  "task": "break_cycle",
+  "selected_strategy": "break_dependency",
+  "strategy_reason": "Lowest impact and complexity",
+  "alternatives": [
+    {
+      "strategy": "extract_interface",
+      "reason": "Higher complexity and broader scope"
+    }
+  ],
+  "confidence": 0.82,
+  "execution_plan": [
+    "Remove direct dependency",
+    "Refactor module interactions",
+    "Validate integration"
+  ]
+}
 ```
 
-By default, the discovery pipeline writes outputs under `data/runs/<run_id>/` (and uses `output.json` as an input/output anchor for CLI).
+---
 
-## API Usage
+## 🏗️ Architecture Overview
 
-Run from the parent directory of `StructIQ`:
-
-```bash
-cd /Users/akhiltripathi/dev
-export APP_MODE=api
-export API_KEY=your_api_key
-export ALLOWED_BASE_DIR=/path/you/allow
-python -m StructIQ.main --serve --host 0.0.0.0 --port 8000
+```text
+Phase 1: Code Discovery
+   ↓
+Phase 2: Dependency Mapping
+   ↓
+Phase 3: Architecture Analysis
+   ↓
+Phase 4: Modernization Engine
+   ↓
+Phase 5: Decision Intelligence
 ```
 
-Health:
-- `GET /health`
+---
 
-Run + results:
-- `POST /analyze` (returns `{ "run_id": "...", "status": "started" }`)
-- `GET /status/{run_id}`
-- `GET /results/{run_id}`
+## ⚙️ Design Principles
 
-Phase outputs:
-- `GET /dependency/graph/{run_id}`
-- `GET /dependency/analysis/{run_id}`
-- `GET /architecture/insights/{run_id}`
-- `GET /modernization/plan/{run_id}`
+StructIQ is built on:
 
-## Outputs (JSON)
+---
 
-Each run writes:
-- `output.json` — Phase 1 discovery output
-- `dependency_graph.json` — Phase 2 graph
-- `dependency_analysis.json` — Phase 2 analysis metrics
-- `architecture_insights.json` — Phase 3/3.5 insights (services, anti-patterns, recommendations)
-- `modernization_plan.json` — Phase 4/4.5 modernization plan (tasks, changes, impact, execution plan)
+### ✅ Deterministic Intelligence
+
+* no randomness
+* same input → same output
+
+---
+
+### ✅ Cost Efficiency
+
+* minimal LLM usage
+* heavy logic is rule-based
+
+---
+
+### ✅ Explainability
+
+* every decision includes reasoning
+* no black-box behavior
+
+---
+
+### ✅ Safety First
+
+* no automatic code modification
+* generates guided plans only
+
+---
+
+### ✅ Modular Architecture
+
+* clean separation of phases
+* easy to extend
+
+---
+
+## 💰 Cost Strategy
+
+| Component         | Cost    |
+| ----------------- | ------- |
+| Code scanning     | $0      |
+| Analysis          | $0      |
+| Decision engine   | $0      |
+| LLM summarization | minimal |
+
+---
+
+## 🧪 Use Cases
+
+* legacy system modernization
+* architecture reviews
+* technical debt analysis
+* onboarding new engineers
+* system design validation
+
+---
+
+## 🚀 How to Run
+
+```bash
+python app/main.py --path /path/to/project
+```
+
+---
+
+## 📂 Output
+
+Results are generated in:
+
+```text
+data/runs/output.json
+```
+
+Includes:
+
+* module structure
+* architecture insights
+* modernization plan
+* decision intelligence outputs
+
+---
+
+## ⚠️ What StructIQ Does NOT Do
+
+* ❌ does not modify code
+* ❌ does not auto-refactor
+* ❌ does not rely heavily on LLMs
+* ❌ does not introduce non-deterministic behavior
+
+---
+
+## 🔮 Roadmap
+
+---
+
+### Phase 5.5 (Planned)
+
+* feedback loop for confidence calibration
+* learning from past runs
+
+---
+
+### Phase 6 (Future)
+
+* assisted code transformation
+* developer-in-the-loop refactoring
+
+---
+
+## 🏁 Vision
+
+StructIQ aims to become:
+
+> 🧠 **An intelligent architectural assistant for software systems**
+
+---
+
+## 🤝 Contribution
+
+This project follows strict principles:
+
+* clarity over cleverness
+* determinism over magic
+* simplicity over overengineering
+
+---
+
+## 📜 License
+
+MIT (or your choice)
+
+---
+
+## 💬 Final Note
+
+StructIQ is not just a tool.
+
+It is a step toward:
+
+> **making software architecture understandable, explainable, and improvable at scale**
 
