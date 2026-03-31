@@ -19,23 +19,55 @@ All four stages are deterministic and run for $0. LLM is an optional advisor for
 
 ## Quick Start
 
+**Install:**
+```bash
+git clone <repo>
+cd StructIQ
+pip install -e .
+```
+
 **CLI (single run):**
 ```bash
-cd /Users/akhiltripathi/dev
-python -m StructIQ.main /path/to/your/project --output data/runs/output.json
+structiq /path/to/your/project
+```
+
+Or without installation:
+```bash
+python -m StructIQ.main /path/to/your/project
 ```
 
 **API server:**
 ```bash
-cd /Users/akhiltripathi/dev
-python -m StructIQ.main --serve --host 0.0.0.0 --port 8000
+structiq --serve --host 0.0.0.0 --port 8000
+```
+
+**Docker (API server):**
+```bash
+docker build -t structiq .
+docker run -p 8000:8000 \
+  -e API_KEY=your_api_key \
+  -e ALLOWED_BASE_DIR=/repos \
+  -v /your/repos:/repos \
+  structiq
+```
+
+With LLM enabled:
+```bash
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=your_openai_key \
+  -e ENABLE_LLM=true \
+  -e API_KEY=your_api_key \
+  -e ALLOWED_BASE_DIR=/repos \
+  -v /your/repos:/repos \
+  structiq
 ```
 
 **Analyze via API:**
 ```bash
+# Start a run
 curl -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
-  -d '{"repo_path": "/path/to/your/project"}'
+  -d '{"repo_path": "/repos/your-project"}'
 
 # Returns: {"run_id": "uuid", "status": "started"}
 ```
@@ -50,6 +82,18 @@ curl http://localhost:8000/status/{run_id}
 curl http://localhost:8000/modernization/plan/{run_id}
 ```
 
+**Ask a plain-English question about a completed run:**
+```bash
+curl -X POST http://localhost:8000/explain/{run_id} \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Where should I start the refactoring?"}'
+```
+
+**Get the HTML report:**
+```bash
+curl http://localhost:8000/report/{run_id} > report.html
+```
+
 ---
 
 ## Configuration
@@ -59,10 +103,11 @@ Set via environment variables:
 | Variable | Default | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | — | Required only if `ENABLE_LLM=true` |
-| `ENABLE_LLM` | `false` | Enable optional LLM calls for summaries |
+| `ENABLE_LLM` | `false` | Enable optional LLM calls for summaries and narratives |
 | `APP_MODE` | `cli` | Set to `api` to enable auth and path restrictions |
 | `API_KEY` | — | Required when `APP_MODE=api` |
 | `ALLOWED_BASE_DIR` | — | Required when `APP_MODE=api` — restricts analyzable paths |
+| `DATA_DIR` | `data/runs` | Directory where run outputs are stored |
 | `MAX_CONCURRENT_RUNS` | `5` | API mode concurrency cap |
 | `MAX_WORKERS` | `4` | Parallel file processing threads |
 | `CACHE_ENABLED` | `true` | SHA256-based LLM result cache |
@@ -98,6 +143,12 @@ Your Codebase
 ┌─────────────┐
 │   Phase 4   │  Modernization planning, change generation, impact analysis, execution plan
 │Modernization│  Output: modernization_plan.json
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  Reporting  │  Self-contained HTML report with dependency graph, anti-patterns, and plan
+│   Layer     │  Output: report.html
 └─────────────┘
 ```
 
@@ -169,6 +220,7 @@ Processes the dependency graph into architecture-level insights. Groups files in
   "services": { "service_name": ["file1.py", "file2.py"] },
   "anti_patterns": [...],
   "recommendations": [...],
+  "root_cause_narrative": "The codebase shows signs of an organically grown monolith...",
   "system_summary": "Analyzed 142 files grouped into 8 logical services. Found 3 architectural issue(s)."
 }
 ```
@@ -193,7 +245,7 @@ ChangeGenerator           → structural change intents (no code generation)
 ImpactAnalyzer            → BFS blast radius + risk scoring per change
      │
      ▼
-PlanGenerator             → risk-ordered execution steps
+PlanGenerator             → risk-ordered execution steps + optional LLM sequencing
 ```
 
 **Task types and what triggers them:**
@@ -206,6 +258,10 @@ PlanGenerator             → risk-ordered execution steps
 | `weak_boundary` | `extract_module` | `extract_module` — suggests `{module}_extracted` |
 
 **Task dominance filtering:** If `break_cycle` or `split_file` already targets file X, any `reduce_coupling` task on file X is removed as dominated. Dominated tasks are preserved in `dominated_tasks` with a `dominated_by` explanation.
+
+**Context-aware plan mode:**
+- `direct` — standard step-by-step changes (default)
+- `staged` — incremental migration steps, used when >300 nodes or >30 files affected by a single change
 
 **Risk scoring per change:**
 - `low` — few files affected, low centrality
@@ -222,16 +278,22 @@ PlanGenerator             → risk-ordered execution steps
   "run_id": "...",
   "generated_at": "...",
   "decision": "action_required",
+  "plan_mode": "direct",
+  "plan_summary": "...",
+  "sequencing_notes": "Start with breaking the dependency cycle — it unblocks the god file split.",
   "tasks": [
     {
       "type": "break_cycle",
-      "target": ["StructIQ/utils.py", "StructIQ/models.py"],
+      "target": ["src/utils.py", "src/models.py"],
       "priority": "high",
       "priority_score": 0.87,
       "confidence": 0.82,
       "why": "Circular dependencies prevent modular deployment...",
       "impact_if_ignored": "Build times increase, test isolation fails...",
-      "alternative": "If breaking the cycle is too disruptive, introduce an event or callback..."
+      "alternative": "If breaking the cycle is too disruptive, introduce a shared interface module.",
+      "selected_strategy": "break_dependency",
+      "strategy_score": 0.82,
+      "strategy_reason": "Lowest complexity, targets the closing edge of the cycle directly."
     }
   ],
   "dominated_tasks": [...],
@@ -240,10 +302,9 @@ PlanGenerator             → risk-ordered execution steps
   "execution_plan": [
     "[Change 1 — break_dependency | risk: high]",
     "  rationale: Circular dependency detected between modules",
-    "  1.1. Identify the import of `StructIQ/models.py` inside `StructIQ/utils.py` that creates the cycle.",
+    "  1.1. Identify the import of `src/models.py` inside `src/utils.py` that creates the cycle.",
     "  ..."
-  ],
-  "plan_summary": "..."
+  ]
 }
 ```
 
@@ -256,6 +317,7 @@ All endpoints accept an optional `X-Api-Key` header (required when `APP_MODE=api
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Service health check |
+| `GET` | `/runs` | List all runs with status |
 | `POST` | `/analyze` | Start an async analysis run |
 | `GET` | `/status/{run_id}` | Run status and per-phase status |
 | `GET` | `/results/{run_id}` | Phase 1 discovery output |
@@ -263,6 +325,8 @@ All endpoints accept an optional `X-Api-Key` header (required when `APP_MODE=api
 | `GET` | `/dependency/analysis/{run_id}` | Dependency metrics |
 | `GET` | `/architecture/insights/{run_id}` | Architecture anti-patterns and services |
 | `GET` | `/modernization/plan/{run_id}` | Full modernization plan |
+| `GET` | `/report/{run_id}` | Self-contained HTML report (completed runs only) |
+| `POST` | `/explain/{run_id}` | Answer a plain-English question about a completed run |
 
 **Status response:**
 ```json
@@ -278,17 +342,32 @@ All endpoints accept an optional `X-Api-Key` header (required when `APP_MODE=api
 
 Phase status values: `pending` | `running` | `ok` | `failed` | `not_run`
 
+Run status values: `running` | `phase2_running` | `phase3_running` | `phase4_running` | `completed` | `failed`
+
+---
+
+## Example Report
+
+A pre-generated example report is available at [`examples/report.html`](examples/report.html).
+
+To regenerate it:
+```bash
+python scripts/generate_example.py
+```
+
 ---
 
 ## LLM Usage
 
 StructIQ runs fully without an LLM. When `ENABLE_LLM=true`:
 
-| Phase | Component | What it does | Cost |
+| Phase | Component | What it does | When it fires |
 |---|---|---|---|
-| Phase 1 | Summarizer | Plain-English summaries for high-complexity files | Per file (high-priority only) |
-| Phase 3 | RecommendationEngine | High-level architecture recommendations | 1 call per run |
-| Phase 4 | PlanGenerator | Executive summary of the modernization plan | 1 call per run |
+| Phase 1 | Summarizer | Plain-English summaries for high-complexity files | Per high-priority file |
+| Phase 3 | RecommendationEngine | Architecture recommendations + `root_cause_narrative` connecting all anti-patterns | 1 call per run |
+| Phase 4 | PlanGenerator | Executive summary (`plan_summary`) + `sequencing_notes` on change ordering | 1 call per run |
+| Reporting | ReportGenerator | Plain-English architectural story for the report header | 1 call per report |
+| API | `/explain/{run_id}` | Answers plain-English questions using the modernization plan as context | 1 call per request |
 
 All LLM calls use compressed payloads — raw file content is never sent. LLM failures are non-fatal; the pipeline continues without the optional output.
 
@@ -296,15 +375,16 @@ All LLM calls use compressed payloads — raw file content is never sent. LLM fa
 
 ## Run Data
 
-Each run stores its data under `data/runs/{run_id}/`:
+Each run stores its data under `$DATA_DIR/{run_id}/` (default: `data/runs/{run_id}/`):
 
 ```
-data/runs/{run_id}/
+{run_id}/
 ├── output.json                  # Phase 1 output
 ├── dependency_graph.json        # Phase 2 graph
 ├── dependency_analysis.json     # Phase 2 metrics
 ├── architecture_insights.json   # Phase 3 insights
 ├── modernization_plan.json      # Phase 4 plan
+├── report.html                  # Generated HTML report
 ├── logs.json                    # Per-file processing log
 └── snapshot.json                # Resume state and phase errors
 ```
@@ -337,17 +417,16 @@ Runs are resumable. If a run is interrupted, restarting with the same `repo_path
 
 - File-based storage only — no horizontal scaling
 - Rate limiting is in-memory (single process)
-- No automated tests
-- `DATA_DIR` (`data/runs`) is not configurable via environment variable
 - No run data retention or cleanup policy
-- API shutdown handler uses deprecated `@app.on_event` — needs lifespan context manager
 - No response models on API endpoints
 
 ---
 
 ## Roadmap
 
-**Phase 5 (in progress)** — Decision Intelligence: confidence interpretation, multi-strategy evaluation, context-aware plan adaptation. In-place enhancement of Phase 4, no new pipeline.
+**Phase 5 (complete)** — Decision Intelligence: confidence scoring with interpretable factors, multi-strategy evaluation per anti-pattern type, context-aware plan adaptation (direct vs staged), task dominance filtering.
+
+**Phase 5 LLM enhancements (complete)** — `root_cause_narrative`, `sequencing_notes`, report narrative header, `POST /explain/{run_id}`.
 
 **Phase 5.5 (planned)** — Feedback loop for confidence calibration based on execution outcomes.
 
