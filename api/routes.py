@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, field_validator
 
 from StructIQ.config import IS_API_MODE
@@ -20,6 +20,10 @@ class AnalyzeRequest(BaseModel):
     """Input payload for analyze endpoint."""
 
     repo_path: str
+    enable_llm: bool = False
+    openai_api_key: str | None = None
+    llm_provider: str = "openai"
+    llm_model: str | None = None
 
     @field_validator("repo_path")
     @classmethod
@@ -47,6 +51,7 @@ class AnalyzeRequest(BaseModel):
 
 class ExplainRequest(BaseModel):
     question: str
+    llm_api_key: str | None = None
 
     @field_validator("question")
     @classmethod
@@ -95,6 +100,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/", response_class=FileResponse)
+def index() -> str:
+    """Serve the StructIQ browser UI."""
+    return str(Path(__file__).parent.parent / "static" / "index.html")
+
+
 @app.get("/runs")
 def list_runs(x_api_key: str | None = Header(default=None)) -> list[dict]:
     """List all runs with their current status."""
@@ -130,7 +141,14 @@ def analyze(request: AnalyzeRequest, x_api_key: str | None = Header(default=None
     run_id = ""
     started = False
     try:
-        run_id = run_manager.start_run(repo_path=request.repo_path, resume=True)
+        run_id = run_manager.start_run(
+            repo_path=request.repo_path,
+            resume=True,
+            enable_llm=request.enable_llm,
+            openai_api_key=request.openai_api_key,
+            llm_provider=request.llm_provider,
+            llm_model=request.llm_model,
+        )
         started = True
     finally:
         if IS_API_MODE and started and run_id:
@@ -276,6 +294,37 @@ def report(run_id: str, x_api_key: str | None = Header(default=None)) -> str:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/review/{run_id}")
+def review(run_id: str, x_api_key: str | None = Header(default=None)) -> dict:
+    """Generate and return architecture review for a completed run."""
+    validate_api_key(x_api_key)
+    status_payload = run_manager.get_status(run_id)
+    run_status = status_payload.get("status")
+    if run_status == "not_found" or not run_status:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run_status != "completed":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Review not available — run status: {run_status}",
+        )
+    from StructIQ.generators.json_writer import read_json_file
+    from StructIQ.reporting.architecture_review import generate_review
+
+    run_dir = Path("data/runs") / run_id
+    dep_analysis = read_json_file(str(run_dir / "dependency_analysis.json"), {})
+    arch_insights = read_json_file(str(run_dir / "architecture_insights.json"), {})
+    mod_plan = read_json_file(str(run_dir / "modernization_plan.json"), {})
+    discovery = read_json_file(str(run_dir / "output.json"), {})
+
+    if not dep_analysis or not arch_insights:
+        raise HTTPException(
+            status_code=404,
+            detail="Review data not available — run may be incomplete",
+        )
+
+    return generate_review(dep_analysis, arch_insights, mod_plan, discovery)
+
+
 @app.post("/explain/{run_id}")
 def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header(default=None)) -> dict:
     """Answer a plain-English question about a completed run using the modernization plan."""
@@ -295,12 +344,25 @@ def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header
     if not plan:
         raise HTTPException(status_code=404, detail="Modernization plan not found for this run")
 
-    from StructIQ.config import settings
-    if not settings.enable_llm:
-        raise HTTPException(status_code=503, detail="LLM is disabled — set ENABLE_LLM=true to use this endpoint")
-
-    from StructIQ.llm.client import OpenAIClient
+    from StructIQ.llm.client import LLMClient
+    from StructIQ.services.run_manager import DATA_DIR
     import json
+
+    _snap = run_manager.get_status(run_id)
+    _llm_stats = _snap.get("llm_stats") or {}
+    _provider = _llm_stats.get("provider") or "openai"
+    _model = _llm_stats.get("model") or None
+    try:
+        _llm_client = LLMClient(
+            provider=_provider,
+            api_key=request.llm_api_key or None,
+            model=_model,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LLM not available — provide llm_api_key in request or set the provider's env var. ({exc})",
+        )
 
     context_payload = {
         "system_summary": str((insights or {}).get("system_summary", ""))[:600],
@@ -332,8 +394,7 @@ def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header
     user_message = f"Context: {json.dumps(context_payload)}\n\nQuestion: {request.question}"
 
     try:
-        client = OpenAIClient()
-        response = client.generate_json(system_prompt, user_message)
+        response = _llm_client.generate_json(system_prompt, user_message)
         answer = str(response.get("answer", "")).strip() if isinstance(response, dict) else ""
         if not answer:
             raise HTTPException(status_code=500, detail="LLM returned an empty answer")

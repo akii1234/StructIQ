@@ -15,6 +15,7 @@ from StructIQ.modernization.change_generator import ChangeGenerator
 from StructIQ.modernization.impact_analyzer import ImpactAnalyzer
 from StructIQ.modernization.plan_generator import PlanGenerator
 from StructIQ.modernization.planner import ModernizationPlanner
+from StructIQ.llm.client import LLMClient
 from StructIQ.utils.logger import get_logger
 
 
@@ -28,6 +29,7 @@ def run_modernization_pipeline(
     run_dir: str,
     run_id: str,
     enable_llm: bool = True,
+    llm_client: "LLMClient | None" = None,
     logger: logging.Logger | None = None,
 ) -> dict:
     if logger is None:
@@ -122,7 +124,7 @@ def run_modernization_pipeline(
         impact_result = ImpactAnalyzer().analyze(changes_result, graph)
 
         logger.info("Phase 4: generating execution plan")
-        plan_result = PlanGenerator().generate(
+        plan_result = PlanGenerator(llm_client=llm_client).generate(
             tasks_result,
             changes_result,
             impact_result,

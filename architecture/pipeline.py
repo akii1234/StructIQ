@@ -14,6 +14,7 @@ from StructIQ.architecture.clustering import ClusteringEngine
 from StructIQ.architecture.graph_processor import GraphProcessor
 from StructIQ.architecture.recommender import RecommendationEngine
 from StructIQ.generators.json_writer import read_json_file, write_json_output
+from StructIQ.llm.client import LLMClient
 from StructIQ.utils.logger import get_logger
 
 
@@ -83,6 +84,7 @@ def run_architecture_pipeline(
     run_dir: str,
     run_id: str,
     enable_llm: bool = True,
+    llm_client: "LLMClient | None" = None,
     logger: logging.Logger | None = None,
 ) -> dict:
     if logger is None:
@@ -115,7 +117,7 @@ def run_architecture_pipeline(
                     "anti_patterns": arch_result.get("anti_patterns", []),
                     "entry_points": analysis.get("entry_points", []),
                 }
-                rec_result = RecommendationEngine().generate(rec_input)
+                rec_result = RecommendationEngine(llm_client=llm_client).generate(rec_input)
                 recommendations = _normalize_recommendations(
                     rec_result.get("recommendations")
                 )

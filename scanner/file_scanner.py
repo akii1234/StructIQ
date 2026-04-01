@@ -31,7 +31,9 @@ class FileScanner:
             dirs[:] = [
                 d
                 for d in dirs
-                if d.lower() not in self._ignored_directories and not d.startswith(".")
+                if d.lower() not in self._ignored_directories
+                and not d.startswith(".")
+                and not (Path(current_root) / d / "pyvenv.cfg").exists()
             ]
 
             for file_name in files:

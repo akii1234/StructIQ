@@ -79,6 +79,13 @@ def build_graph(
         dotted_full, dotted_wo_init = _module_dotted_name(fp, project_root_path)
         dotted_to_path[dotted_full] = fp
         dotted_to_path[dotted_wo_init] = fp
+        # Also index all suffix sub-paths so imports relative to any ancestor work.
+        # e.g. "backend.candidate_ranking.models" → also store "candidate_ranking.models" and "models"
+        parts = dotted_wo_init.split(".")
+        for i in range(1, len(parts)):
+            suffix_key = ".".join(parts[i:])
+            if suffix_key not in dotted_to_path:
+                dotted_to_path[suffix_key] = fp
 
     # 3. Build language_map
     language_map: dict[str, str] = {}
@@ -166,7 +173,7 @@ def build_graph(
                     remainder = import_target[dots:]
                     if remainder:
                         base_dir = Path(source_fp).parent
-                        for _ in range(dots):
+                        for _ in range(dots - 1):
                             base_dir = base_dir.parent
                         candidate_base = base_dir.joinpath(*remainder.split("."))
                         cand_file = candidate_base.with_suffix(".py")

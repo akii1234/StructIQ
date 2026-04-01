@@ -302,9 +302,24 @@ class ModernizationPlanner:
                 priority = "medium"
             else:
                 priority = "low"
-            template = _EXPLAINABILITY_MAP.get(
+            base_template = _EXPLAINABILITY_MAP.get(
                 task_type, {"why": "", "impact_if_ignored": "", "alternative": ""}
             )
+            if task_type == "reduce_coupling" and target:
+                file_name = Path(target[0]).name
+                template = {
+                    "why": (
+                        f"`{file_name}` has {int(afferent)} incoming and "
+                        f"{int(efferent)} outgoing dependencies"
+                    ),
+                    "impact_if_ignored": (
+                        f"Modifications to `{file_name}` affect {int(afferent)} "
+                        f"dependent file(s), amplifying regression risk"
+                    ),
+                    "alternative": base_template["alternative"],
+                }
+            else:
+                template = base_template
 
             strategies = STRATEGY_MAP.get(ap_type) or []
             eval_ctx = {

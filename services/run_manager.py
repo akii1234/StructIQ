@@ -13,7 +13,7 @@ from StructIQ.agents.summarizer import Summarizer
 from StructIQ.config import settings
 from StructIQ.core.orchestrator import DiscoveryOrchestrator
 from StructIQ.generators.json_writer import read_json_file, write_json_output
-from StructIQ.llm.client import OpenAIClient
+from StructIQ.llm.client import LLMClient
 from StructIQ.scanner.file_classifier import FileClassifier
 from StructIQ.scanner.file_scanner import FileScanner
 from StructIQ.scanner.module_extractor import ModuleExtractor
@@ -31,8 +31,31 @@ class RunManager:
         self._lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self._runs: Dict[str, Dict[str, Any]] = {}
+        self._reconcile_interrupted_runs()
 
-    def start_run(self, repo_path: str, resume: bool = True) -> str:
+    def _reconcile_interrupted_runs(self) -> None:
+        """Mark any in-progress runs as failed on startup."""
+        in_progress = {
+            "running", "phase2_running", "phase3_running", "phase4_running"
+        }
+        if not DATA_DIR.exists():
+            return
+        for run_dir in DATA_DIR.iterdir():
+            if not run_dir.is_dir():
+                continue
+            if not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                run_dir.name,
+            ):
+                continue
+            snapshot_path = run_dir / "snapshot.json"
+            snapshot = read_json_file(str(snapshot_path), {})
+            if snapshot.get("status") in in_progress:
+                snapshot["status"] = "failed"
+                snapshot["reason"] = "interrupted: server restarted"
+                write_json_output(snapshot, str(snapshot_path))
+
+    def start_run(self, repo_path: str, resume: bool = True, enable_llm: bool = False, openai_api_key: str | None = None, llm_provider: str = "openai", llm_model: str | None = None) -> str:
         """Create and start an async run thread."""
         run_id = str(uuid.uuid4())
         run_dir = DATA_DIR / run_id
@@ -42,6 +65,11 @@ class RunManager:
             "run_id": run_id,
             "repo_path": repo_path,
             "status": "running",
+            "enable_llm": enable_llm,
+            "openai_api_key": openai_api_key,
+            "llm_provider": llm_provider,
+            "llm_model": llm_model,
+            "llm_stats": {},
             "progress": {"total_files": 0, "processed": 0, "skipped": 0, "failed": 0},
             "run_dir": str(run_dir),
             "output_path": str(run_dir / "output.json"),
@@ -108,6 +136,7 @@ class RunManager:
                 "phase4_status": self._derive_phase4_status(
                     state["status"], state.get("phase4_error")
                 ),
+                "llm_stats": state.get("llm_stats") or {},
             }
 
         snapshot = read_json_file(str(DATA_DIR / run_id / "snapshot.json"), {})
@@ -126,6 +155,7 @@ class RunManager:
                 "phase4_status": self._derive_phase4_status(
                     snap_status, snapshot.get("phase4_error")
                 ),
+                "llm_stats": snapshot.get("llm_stats") or {},
             }
         return {"run_id": run_id, "status": "not_found", "progress": {}}
 
@@ -210,7 +240,15 @@ class RunManager:
         processed_files = set(snapshot.get("processed_files", [])) if resume else set()
 
         cache_manager = CacheManager(enabled=settings.cache_enabled)
-        llm_client = OpenAIClient()
+        run_enable_llm = run_state.get("enable_llm", False) or settings.enable_llm
+        run_api_key = run_state.get("openai_api_key")
+        run_provider = run_state.get("llm_provider") or "openai"
+        run_model = run_state.get("llm_model") or None
+        try:
+            llm_client = LLMClient(provider=run_provider, api_key=run_api_key, model=run_model) if run_enable_llm else None
+        except Exception as exc:
+            self.logger.warning("LLM client init failed (%s) — running without LLM: %s", run_provider, exc)
+            llm_client = None
         orchestrator = DiscoveryOrchestrator(
             scanner=FileScanner(),
             classifier=FileClassifier(),
@@ -306,7 +344,8 @@ class RunManager:
                     analysis_path=analysis_path,
                     run_dir=run_state["run_dir"],
                     run_id=run_id,
-                    enable_llm=settings.enable_llm,
+                    enable_llm=run_enable_llm,
+                    llm_client=llm_client,
                     logger=self.logger,
                 )
             except ArchitecturePipelineError as exc:
@@ -317,6 +356,26 @@ class RunManager:
 
             with self._lock:
                 self._runs[run_id]["phase3_error"] = phase3_error
+
+            # Record Phase 3 LLM usage
+            try:
+                arch_check = read_json_file(
+                    str(DATA_DIR / run_id / "architecture_insights.json"), {}
+                )
+                with self._lock:
+                    self._runs[run_id]["llm_stats"] = {
+                        "enabled": llm_client is not None,
+                        "provider": run_state.get("llm_provider") or "openai",
+                        "model": run_state.get("llm_model") or "",
+                        "phase1_enabled": llm_client is not None,
+                        "phase3_narrative": bool(
+                            str(arch_check.get("root_cause_narrative") or "").strip()
+                        ),
+                        "phase4_summary": False,
+                        "phase4_sequencing": False,
+                    }
+            except Exception:
+                pass
 
             with self._lock:
                 self._runs[run_id]["status"] = "phase4_running"
@@ -341,7 +400,8 @@ class RunManager:
                     graph_path=graph_path,
                     run_dir=run_state["run_dir"],
                     run_id=run_id,
-                    enable_llm=settings.enable_llm,
+                    enable_llm=run_enable_llm,
+                    llm_client=llm_client,
                     logger=self.logger,
                 )
             except ModernizationPipelineError as exc:
@@ -352,6 +412,24 @@ class RunManager:
 
             with self._lock:
                 self._runs[run_id]["phase4_error"] = phase4_error
+
+            # Update Phase 4 LLM usage
+            try:
+                plan_check = read_json_file(
+                    str(DATA_DIR / run_id / "modernization_plan.json"), {}
+                )
+                with self._lock:
+                    existing_stats = dict(self._runs[run_id].get("llm_stats") or {})
+                    existing_stats["phase4_summary"] = bool(
+                        str(plan_check.get("plan_summary") or "").strip()
+                    )
+                    existing_stats["phase4_sequencing"] = bool(
+                        str(plan_check.get("sequencing_notes") or "").strip()
+                    )
+                    self._runs[run_id]["llm_stats"] = existing_stats
+            except Exception:
+                pass
+
             cache_manager.persist()
             with self._lock:
                 self._runs[run_id]["status"] = "completed"
@@ -387,5 +465,6 @@ class RunManager:
             "phase2_error": run_state.get("phase2_error"),
             "phase3_error": run_state.get("phase3_error"),
             "phase4_error": run_state.get("phase4_error"),
+            "llm_stats": run_state.get("llm_stats") or {},
         }
         write_json_output({**existing, **payload}, str(snapshot_path))

@@ -4,22 +4,21 @@ import json
 from typing import Any, Dict, List
 
 from StructIQ.config import settings
-from StructIQ.llm.client import OpenAIClient
+from StructIQ.llm.client import LLMClient
 
 
 class RecommendationEngine:
     """Generate high-level architecture recommendations from Phase 2 artifacts."""
 
-    def __init__(self, llm_client: OpenAIClient | None = None) -> None:
+    def __init__(self, llm_client: LLMClient | None = None) -> None:
         self._llm_client = llm_client  # None until first use
 
-    def _get_client(self) -> OpenAIClient:
-        if self._llm_client is None:
-            self._llm_client = OpenAIClient()
+    def _get_client(self) -> LLMClient:
+        assert self._llm_client is not None, "_get_client called without an llm_client"
         return self._llm_client
 
     def generate(self, input_data: dict) -> dict:
-        if not settings.enable_llm:
+        if self._llm_client is None:
             return {"recommendations": [], "root_cause_narrative": ""}
 
         if not isinstance(input_data, dict):

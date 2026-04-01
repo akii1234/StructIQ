@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from openai import OpenAIError
 
 from StructIQ.config import settings
-from StructIQ.llm.client import OpenAIClient
+from StructIQ.llm.client import LLMClient
 from StructIQ.services.cache_manager import CacheManager
 from StructIQ.utils.content_extractor import extract_relevant_content
 from StructIQ.utils.content_utils import (
@@ -51,7 +51,7 @@ class Summarizer:
 
     def __init__(
         self,
-        llm_client: OpenAIClient,
+        llm_client: LLMClient | None,
         max_chars: int = 12000,
         cache_manager: CacheManager | None = None,
     ) -> None:
@@ -131,7 +131,7 @@ class Summarizer:
             payload["_reason"] = "cache_hit"
             return payload
 
-        if not settings.enable_llm or not settings.llm_medium_priority:
+        if self.llm_client is None or not settings.llm_medium_priority:
             return self._medium_static_summary(file_path, static_meta)
 
         excerpt = extract_relevant_content(content)
@@ -167,7 +167,7 @@ class Summarizer:
                 }
                 self._touch_cost(cost_tracker, "cache_hits")
                 continue
-            if not settings.enable_llm:
+            if self.llm_client is None:
                 results[fp] = self.high_static_fallback(fp, static_meta)
                 continue
 
@@ -450,7 +450,7 @@ class Summarizer:
                 file_path, file_type, content, static_meta, cost_tracker
             )
 
-        if settings.enable_llm and settings.llm_high_priority_only:
+        if self.llm_client is not None and settings.llm_high_priority_only:
             batch_map = self.summarize_batch_high_priority(
                 [
                     {
@@ -467,7 +467,7 @@ class Summarizer:
                 self.high_static_fallback(file_path, static_meta),
             )
 
-        if not settings.enable_llm:
+        if self.llm_client is None:
             return self.high_static_fallback(file_path, static_meta)
 
         content_hash = get_file_hash(content)

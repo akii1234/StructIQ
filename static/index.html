@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StructIQ</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f172a; color: #f1f5f9; font-family: system-ui, -apple-system, Arial, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; background: #1e293b; border-bottom: 1px solid #334155; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+    nav .brand { font-weight: 700; font-size: 18px; color: #f1f5f9; }
+    nav .tagline { color: #64748b; font-size: 13px; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .form-row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .form-row:last-child { margin-bottom: 0; }
+    input[type="text"] { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #f1f5f9; padding: 10px 14px; font-size: 14px; outline: none; }
+    input[type="text"]:focus { border-color: #60a5fa; }
+    input[type="text"]::placeholder { color: #475569; }
+    button { background: #3b82f6; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    button.secondary { background: #1e293b; border: 1px solid #334155; color: #94a3b8; }
+    button.secondary:hover { background: #334155; color: #f1f5f9; }
+    button.success { background: #22c55e; color: #0f172a; }
+    button.success:hover { background: #16a34a; }
+    .phases { display: flex; gap: 0; margin: 16px 0; }
+    .phase-step { flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; border: 1px solid #334155; background: #0f172a; color: #475569; }
+    .phase-step:first-child { border-radius: 8px 0 0 8px; }
+    .phase-step:last-child { border-radius: 0 8px 8px 0; }
+    .phase-step + .phase-step { border-left: none; }
+    .phase-step .phase-name { font-weight: 600; margin-bottom: 3px; }
+    .phase-step .phase-status { font-size: 11px; }
+    .phase-step.running { border-color: #3b82f6; background: #1e3a5f; color: #93c5fd; animation: pulse 1.5s ease-in-out infinite; }
+    .phase-step.ok { border-color: #22c55e; background: #14532d; color: #86efac; }
+    .phase-step.failed { border-color: #ef4444; background: #450a0a; color: #fca5a5; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .run-meta { color: #64748b; font-size: 12px; margin-bottom: 12px; }
+    .run-meta span { color: #94a3b8; font-family: monospace; }
+    .status-msg { font-size: 13px; color: #94a3b8; margin-top: 10px; }
+    .status-msg.error { color: #fca5a5; }
+    .run-actions { margin-top: 14px; display: flex; gap: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { color: #64748b; font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 1px solid #334155; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    td { padding: 10px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1a2744; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-completed { background: #14532d; color: #86efac; }
+    .badge-running { background: #1e3a5f; color: #93c5fd; }
+    .badge-failed { background: #450a0a; color: #fca5a5; }
+    .badge-other { background: #1e293b; color: #64748b; }
+    .mono { font-family: monospace; font-size: 12px; color: #64748b; }
+    h2 { font-size: 15px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+    .empty { color: #475569; font-size: 13px; padding: 20px 0; text-align: center; }
+    .error-banner { background: #450a0a; border: 1px solid #ef4444; border-radius: 8px; padding: 10px 14px; color: #fca5a5; font-size: 13px; margin-bottom: 12px; display: none; }
+    .toggle-row { display:flex; align-items:center; gap:12px; padding:4px 0; }
+    .toggle-label { font-size:13px; color:#94a3b8; }
+    .toggle { position:relative; display:inline-block; width:40px; height:22px; }
+    .toggle input { opacity:0; width:0; height:0; }
+    .toggle-slider { position:absolute; cursor:pointer; inset:0; background:#334155; border-radius:22px; transition:.2s; }
+    .toggle-slider:before { content:""; position:absolute; height:16px; width:16px; left:3px; bottom:3px; background:#64748b; border-radius:50%; transition:.2s; }
+    input:checked + .toggle-slider { background:#3b82f6; }
+    input:checked + .toggle-slider:before { transform:translateX(18px); background:#fff; }
+    #llm-key-row { display:none; }
+    select { background:#0f172a; border:1px solid #334155; border-radius:8px; color:#f1f5f9; padding:10px 14px; font-size:14px; outline:none; flex:1; }
+    select:focus { border-color:#60a5fa; }
+    #llm-provider-row { display:none; }
+    #llm-model-row { display:none; }
+    .llm-meta { font-size:12px; color:#7c3aed; margin-top:6px; }
+    .llm-meta.disabled { color:#475569; }
+    .tab-bar { display:flex; gap:0; margin-bottom:16px; }
+    .tab-btn { flex:1; padding:10px 8px; text-align:center; font-size:13px; font-weight:600; border:1px solid #334155; background:#0f172a; color:#64748b; cursor:pointer; transition:.15s; }
+    .tab-btn:first-child { border-radius:8px 0 0 8px; }
+    .tab-btn:last-child { border-radius:0 8px 8px 0; }
+    .tab-btn + .tab-btn { border-left:none; }
+    .tab-btn.active { background:#1e293b; color:#f1f5f9; border-color:#3b82f6; }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+    .rv-card { background:#1e293b; border:1px solid #334155; border-radius:12px; padding:16px; margin-bottom:16px; }
+    .rv-card h3 { font-size:14px; font-weight:700; color:#94a3b8; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.06em; }
+    .rv-summary { color:#cbd5e1; font-size:14px; line-height:1.7; }
+    .rv-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .rv-table th { color:#64748b; font-weight:600; text-align:left; padding:8px 10px; border-bottom:1px solid #334155; font-size:11px; text-transform:uppercase; }
+    .rv-table td { padding:8px 10px; border-bottom:1px solid #1e293b; vertical-align:middle; }
+    .rv-table tr:last-child td { border-bottom:none; }
+    .rv-table tr:hover td { background:#1a2744; }
+    .rv-conf-high { color:#22c55e; font-weight:600; }
+    .rv-conf-medium { color:#f59e0b; font-weight:600; }
+    .rv-conf-low { color:#64748b; font-weight:600; }
+    .rv-sev-section { margin-bottom:12px; }
+    .rv-sev-header { display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 0; user-select:none; }
+    .rv-sev-header .arrow { transition:transform .2s; font-size:10px; color:#64748b; }
+    .rv-sev-header .arrow.open { transform:rotate(90deg); }
+    .rv-sev-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+    .rv-sev-count { font-size:11px; color:#64748b; }
+    .rv-sev-body { display:none; }
+    .rv-sev-body.open { display:block; }
+    .rv-border-critical td:first-child { border-left:3px solid #ef4444; }
+    .rv-border-high td:first-child { border-left:3px solid #f97316; }
+    .rv-border-medium td:first-child { border-left:3px solid #eab308; }
+    .rv-border-low td:first-child { border-left:3px solid #64748b; }
+    .rv-bar { height:8px; border-radius:4px; background:#334155; position:relative; overflow:hidden; }
+    .rv-bar-fill { height:100%; border-radius:4px; background:#3b82f6; }
+    .rv-fix-item { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid #1e293b; align-items:flex-start; }
+    .rv-fix-item:last-child { border-bottom:none; }
+    .rv-fix-step { min-width:32px; height:32px; border-radius:50%; background:#334155; color:#f1f5f9; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+    .rv-fix-body { flex:1; }
+    .rv-risk { font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+    .rv-risk-high { background:#450a0a; color:#fca5a5; }
+    .rv-risk-medium { background:#451a03; color:#fdba74; }
+    .rv-risk-low { background:#1a2e05; color:#bef264; }
+    .rv-spinner { text-align:center; padding:40px 0; color:#64748b; }
+    .rv-error { text-align:center; padding:20px 0; color:#fca5a5; }
+  </style>
+</head>
+<body>
+<nav>
+  <span class="brand">StructIQ</span>
+  <span class="tagline">Codebase Intelligence Engine</span>
+</nav>
+<div class="wrap">
+  <div class="card">
+    <h2>Analyze a Repository</h2>
+    <div id="error-banner" class="error-banner"></div>
+    <div class="form-row">
+      <input type="text" id="repo-path" placeholder="/path/to/your/project" />
+      <button id="analyze-btn" onclick="submitAnalysis()">Analyze</button>
+    </div>
+    <div class="form-row">
+      <input type="text" id="api-key" placeholder="StructIQ API key (optional — required when APP_MODE=api)" />
+    </div>
+    <div class="form-row toggle-row">
+      <label class="toggle">
+        <input type="checkbox" id="llm-toggle" onchange="toggleLlm()" />
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label">Enable LLM (file summaries, architecture narrative, plan summary)</span>
+    </div>
+    <div class="form-row" id="llm-key-row">
+      <input type="text" id="llm-key" placeholder="API key for selected provider" />
+    </div>
+    <div class="form-row" id="llm-provider-row">
+      <select id="llm-provider" onchange="onProviderChange()">
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic Claude</option>
+        <option value="groq">Groq (free tier)</option>
+        <option value="ollama">Ollama (local)</option>
+      </select>
+    </div>
+    <div class="form-row" id="llm-model-row">
+      <input type="text" id="llm-model" placeholder="Model (leave blank for default)" />
+    </div>
+  </div>
+  <div id="run-card" class="card" style="display:none">
+    <h2>Current Run</h2>
+    <div class="run-meta">Run ID: <span id="run-id-display">—</span></div>
+    <div class="phases">
+      <div class="phase-step pending" id="phase1"><div class="phase-name">Discovery</div><div class="phase-status" id="phase1-status">pending</div></div>
+      <div class="phase-step pending" id="phase2"><div class="phase-name">Dependencies</div><div class="phase-status" id="phase2-status">pending</div></div>
+      <div class="phase-step pending" id="phase3"><div class="phase-name">Architecture</div><div class="phase-status" id="phase3-status">pending</div></div>
+      <div class="phase-step pending" id="phase4"><div class="phase-name">Modernization</div><div class="phase-status" id="phase4-status">pending</div></div>
+    </div>
+    <div id="status-msg" class="status-msg">Starting analysis…</div>
+    <div id="llm-meta" class="llm-meta" style="display:none"></div>
+    <div class="run-actions">
+      <button id="report-btn" class="success" style="display:none" onclick="viewReport()">View Report</button>
+      <button id="review-btn" class="secondary" style="display:none" onclick="switchTab('review')">Architecture Review</button>
+      <button class="secondary" onclick="hideRunCard()">Dismiss</button>
+    </div>
+  </div>
+  <div id="tab-review" class="card" style="display:none">
+    <h2>Architecture Review</h2>
+    <div id="review-content"><div class="rv-spinner">Loading review…</div></div>
+  </div>
+  <div class="card">
+    <h2>Recent Runs</h2>
+    <div id="runs-container"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+<script>
+  let activeRunId = null;
+  let pollTimer = null;
+
+  const PROVIDER_DEFAULTS = {
+    openai:    { model: 'gpt-4.1-mini',              keyPlaceholder: 'OpenAI API key — sk-...',       needsKey: true  },
+    anthropic: { model: 'claude-haiku-4-5-20251001',  keyPlaceholder: 'Anthropic API key — sk-ant-...', needsKey: true  },
+    groq:      { model: 'llama-3.1-8b-instant',       keyPlaceholder: 'Groq API key — gsk_...',         needsKey: true  },
+    ollama:    { model: 'llama3.2',                   keyPlaceholder: 'No key required for Ollama',     needsKey: false },
+  };
+  function onProviderChange() {
+    const provider = document.getElementById('llm-provider').value;
+    const cfg = PROVIDER_DEFAULTS[provider] || PROVIDER_DEFAULTS.openai;
+    document.getElementById('llm-model').placeholder = 'Model — default: ' + cfg.model;
+    document.getElementById('llm-key-row').style.display = cfg.needsKey ? 'flex' : 'none';
+    document.getElementById('llm-key').placeholder = cfg.keyPlaceholder;
+  }
+  function toggleLlm() {
+    const on = document.getElementById('llm-toggle').checked;
+    const show = on ? 'flex' : 'none';
+    document.getElementById('llm-provider-row').style.display = show;
+    document.getElementById('llm-model-row').style.display = show;
+    if (on) onProviderChange();
+    else document.getElementById('llm-key-row').style.display = 'none';
+  }
+
+  function apiKey() { return document.getElementById('api-key').value.trim(); }
+  function headers() { const h = {'Content-Type':'application/json'}; const k = apiKey(); if (k) h['X-Api-Key'] = k; return h; }
+  function showError(msg) { const el = document.getElementById('error-banner'); el.textContent = msg; el.style.display = 'block'; }
+  function clearError() { const el = document.getElementById('error-banner'); el.style.display = 'none'; el.textContent = ''; }
+
+  async function submitAnalysis() {
+    const path = document.getElementById('repo-path').value.trim();
+    if (!path) { showError('Please enter a repository path.'); return; }
+    clearError();
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = true; btn.textContent = 'Starting…';
+    try {
+      const llmOn = document.getElementById('llm-toggle').checked;
+      const llmKey = document.getElementById('llm-key').value.trim();
+      const llmProvider = (document.getElementById('llm-provider') || {}).value || 'openai';
+      const llmModel = (document.getElementById('llm-model') || {}).value?.trim() || '';
+      const body = { repo_path: path };
+      if (llmOn) {
+        body.enable_llm = true;
+        body.llm_provider = llmProvider;
+        if (llmKey) body.openai_api_key = llmKey;
+        if (llmModel) body.llm_model = llmModel;
+      }
+      const res = await fetch('/analyze', { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) { showError(data.detail || 'Failed to start analysis.'); btn.disabled = false; btn.textContent = 'Analyze'; return; }
+      activeRunId = data.run_id;
+      showRunCard(activeRunId);
+      startPolling(activeRunId);
+    } catch (e) { showError('Could not connect to StructIQ API.'); btn.disabled = false; btn.textContent = 'Analyze'; }
+  }
+
+  function showRunCard(runId) {
+    document.getElementById('run-card').style.display = 'block';
+    document.getElementById('run-id-display').textContent = runId.slice(0, 8) + '…';
+    document.getElementById('report-btn').style.display = 'none';
+    document.getElementById('status-msg').className = 'status-msg';
+    document.getElementById('status-msg').textContent = 'Starting analysis…';
+    resetPhases();
+  }
+
+  function hideRunCard() { document.getElementById('run-card').style.display = 'none'; if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+
+  function resetPhases() {
+    ['phase1','phase2','phase3','phase4'].forEach(id => { document.getElementById(id).className = 'phase-step pending'; });
+    ['phase1-status','phase2-status','phase3-status','phase4-status'].forEach(id => { document.getElementById(id).textContent = 'pending'; });
+  }
+
+  function setPhase(id, state, label) { document.getElementById(id).className = 'phase-step ' + state; document.getElementById(id + '-status').textContent = label; }
+
+  function updateRunCard(data) {
+    const s = data.status; const p2 = data.phase2_status; const p3 = data.phase3_status; const p4 = data.phase4_status;
+    if (s === 'running') { setPhase('phase1','running','running'); setPhase('phase2','pending','pending'); setPhase('phase3','pending','pending'); setPhase('phase4','pending','pending'); }
+    else { setPhase('phase1','ok','done'); }
+    if (s === 'phase2_running') setPhase('phase2','running','running');
+    else if (p2 === 'ok') setPhase('phase2','ok','done'); else if (p2 === 'failed') setPhase('phase2','failed','failed');
+    if (s === 'phase3_running') setPhase('phase3','running','running');
+    else if (p3 === 'ok') setPhase('phase3','ok','done'); else if (p3 === 'failed') setPhase('phase3','failed','failed');
+    if (s === 'phase4_running') setPhase('phase4','running','running');
+    else if (p4 === 'ok') setPhase('phase4','ok','done'); else if (p4 === 'failed') setPhase('phase4','failed','failed');
+    const msgEl = document.getElementById('status-msg');
+    if (s === 'completed') {
+      const n = data.progress?.processed ?? ''; msgEl.textContent = `Analysis complete.${n ? ' ' + n + ' files processed.' : ''}`; msgEl.className = 'status-msg';
+      const lm = document.getElementById('llm-meta');
+      const ls = data.llm_stats || {};
+      if (ls.enabled) {
+        const phases = [
+          ls.phase1_enabled   ? 'Phase 1' : '',
+          ls.phase3_narrative ? 'Phase 3' : '',
+          ls.phase4_summary   ? 'Phase 4' : '',
+        ].filter(Boolean).join(' · ') || 'none';
+        lm.textContent = '✦ LLM: ' + (ls.provider || 'openai') + ' (' + (ls.model || 'default') + ') · ' + phases;
+        lm.className = 'llm-meta';
+      } else {
+        lm.textContent = 'LLM: disabled — static analysis only';
+        lm.className = 'llm-meta disabled';
+      }
+      lm.style.display = 'block';
+      document.getElementById('report-btn').style.display = 'inline-block';
+      document.getElementById('review-btn').style.display = 'inline-block';
+      document.getElementById('analyze-btn').disabled = false; document.getElementById('analyze-btn').textContent = 'Analyze';
+      loadRecentRuns();
+    } else if (s === 'failed') {
+      msgEl.textContent = 'Analysis failed.'; msgEl.className = 'status-msg error';
+      document.getElementById('analyze-btn').disabled = false; document.getElementById('analyze-btn').textContent = 'Analyze';
+      loadRecentRuns();
+    } else {
+      const msgs = { running:'Phase 1: Discovering and classifying files…', phase2_running:'Phase 2: Building dependency graph…', phase3_running:'Phase 3: Analysing architecture…', phase4_running:'Phase 4: Generating modernization plan…' };
+      msgEl.textContent = msgs[s] || 'Running…';
+    }
+  }
+
+  function startPolling(runId) {
+    if (pollTimer) clearTimeout(pollTimer);
+    async function poll() {
+      try {
+        const res = await fetch('/status/' + runId, { headers: headers() });
+        if (!res.ok) return;
+        const data = await res.json();
+        updateRunCard(data);
+        if (data.status !== 'completed' && data.status !== 'failed') pollTimer = setTimeout(poll, 2000);
+      } catch (e) { pollTimer = setTimeout(poll, 3000); }
+    }
+    poll();
+  }
+
+  function viewReport() { if (activeRunId) window.open('/report/' + activeRunId, '_blank'); }
+
+  function statusBadge(s) {
+    const map = { completed:['completed','completed'], failed:['failed','failed'], running:['running','running'], phase2_running:['running','analyzing'], phase3_running:['running','analyzing'], phase4_running:['running','planning'] };
+    const [cls, label] = map[s] || ['other', s];
+    return `<span class="badge badge-${cls}">${label}</span>`;
+  }
+
+  async function loadRecentRuns() {
+    try {
+      const res = await fetch('/runs', { headers: headers() });
+      if (!res.ok) { document.getElementById('runs-container').innerHTML = '<div class="empty">Could not load runs.</div>'; return; }
+      const runs = await res.json();
+      if (!runs.length) { document.getElementById('runs-container').innerHTML = '<div class="empty">No runs yet. Submit a repository path above to get started.</div>'; return; }
+      const rows = runs.map(r => {
+        const prog = r.progress || {};
+        const progStr = prog.total_files ? `${prog.processed ?? 0} / ${prog.total_files} files` : '—';
+        const btn = r.status === 'completed' ? `<button class="success" style="padding:4px 12px;font-size:12px" onclick="window.open('/report/${r.run_id}','_blank')">Report</button>` : '';
+        return `<tr><td class="mono">${r.run_id.slice(0,8)}…</td><td>${statusBadge(r.status)}</td><td style="color:#64748b;font-size:12px">${progStr}</td><td>${btn}</td></tr>`;
+      }).join('');
+      document.getElementById('runs-container').innerHTML = `<table><thead><tr><th>Run ID</th><th>Status</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    } catch (e) { document.getElementById('runs-container').innerHTML = '<div class="empty">Could not load runs.</div>'; }
+  }
+
+  function switchTab(tab) {
+    const reviewPanel = document.getElementById('tab-review');
+    if (tab === 'review') {
+      reviewPanel.style.display = 'block';
+      loadReview();
+    } else {
+      reviewPanel.style.display = 'none';
+    }
+  }
+
+  async function loadReview() {
+    if (!activeRunId) return;
+    const container = document.getElementById('review-content');
+    container.innerHTML = '<div class="rv-spinner">Loading review…</div>';
+    try {
+      const res = await fetch('/review/' + activeRunId, { headers: headers() });
+      if (!res.ok) { container.innerHTML = '<div class="rv-error">Review unavailable</div>'; return; }
+      const data = await res.json();
+      container.innerHTML = renderReview(data);
+    } catch (e) { container.innerHTML = '<div class="rv-error">Review unavailable</div>'; }
+  }
+
+  function esc(s) { const d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
+
+  function renderReview(d) {
+    let html = '';
+    html += '<div class="rv-card"><h3>Executive Summary</h3><div class="rv-summary">' + esc(d.executive_summary || '') + '</div></div>';
+
+    const strengths = d.strengths || [];
+    if (strengths.length) {
+      html += '<div class="rv-card"><h3>Strengths</h3><table class="rv-table"><thead><tr><th>Strength</th><th>Evidence</th><th>Confidence</th></tr></thead><tbody>';
+      strengths.forEach(s => {
+        const cls = s.confidence === 'High' ? 'rv-conf-high' : s.confidence === 'Medium' ? 'rv-conf-medium' : 'rv-conf-low';
+        html += '<tr><td>' + esc(s.strength) + '</td><td style="color:#94a3b8">' + esc(s.evidence) + '</td><td class="' + cls + '">' + esc(s.confidence) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    const issues = d.issues || {};
+    const sevs = [
+      { key:'critical', label:'Critical', bg:'#450a0a', fg:'#fca5a5', border:'rv-border-critical' },
+      { key:'high',     label:'High',     bg:'#451a03', fg:'#fdba74', border:'rv-border-high' },
+      { key:'medium',   label:'Medium',   bg:'#422006', fg:'#fde68a', border:'rv-border-medium' },
+      { key:'low',      label:'Low',      bg:'#1e293b', fg:'#94a3b8', border:'rv-border-low' },
+    ];
+    html += '<div class="rv-card"><h3>Issues by Priority</h3>';
+    sevs.forEach((sv, si) => {
+      const items = issues[sv.key] || [];
+      const isOpen = items.length > 0;
+      html += '<div class="rv-sev-section">';
+      html += '<div class="rv-sev-header" onclick="this.querySelector(\'.arrow\').classList.toggle(\'open\');this.nextElementSibling.classList.toggle(\'open\')">';
+      html += '<span class="arrow' + (isOpen ? ' open' : '') + '">&#9654;</span>';
+      html += '<span class="rv-sev-badge" style="background:' + sv.bg + ';color:' + sv.fg + '">' + sv.label + '</span>';
+      html += '<span class="rv-sev-count">' + items.length + ' issue' + (items.length !== 1 ? 's' : '') + '</span>';
+      html += '</div>';
+      html += '<div class="rv-sev-body' + (isOpen ? ' open' : '') + '">';
+      if (items.length) {
+        html += '<table class="rv-table"><thead><tr><th>#</th><th>Issue</th><th>Location</th><th>Impact</th></tr></thead><tbody>';
+        items.forEach((it, idx) => {
+          html += '<tr class="' + sv.border + '"><td style="color:#64748b">' + (idx+1) + '</td><td>' + esc(it.issue) + '</td><td style="color:#94a3b8;font-family:monospace;font-size:12px">' + esc(it.location) + '</td><td style="color:#94a3b8;font-size:12px">' + esc(it.impact) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      html += '</div></div>';
+    });
+    html += '</div>';
+
+    const cmap = d.coupling_map || [];
+    if (cmap.length) {
+      html += '<div class="rv-card"><h3>Top Coupled Files</h3><table class="rv-table"><thead><tr><th>File</th><th>Coupling Score</th><th>Note</th></tr></thead><tbody>';
+      cmap.forEach(c => {
+        const pct = Math.min(100, Math.round((c.score || 0) * 100));
+        html += '<tr><td style="font-family:monospace;font-size:12px">' + esc(c.file) + '</td><td><div style="display:flex;align-items:center;gap:8px"><div class="rv-bar" style="width:80px"><div class="rv-bar-fill" style="width:' + pct + '%"></div></div><span style="color:#94a3b8;font-size:12px">' + (c.score || 0).toFixed(2) + '</span></div></td><td style="color:#94a3b8;font-size:12px">' + esc(c.note) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    const fixes = d.fix_order || [];
+    if (fixes.length) {
+      html += '<div class="rv-card"><h3>Recommended Fix Order</h3>';
+      fixes.forEach(f => {
+        const riskCls = f.risk === 'high' ? 'rv-risk-high' : f.risk === 'low' ? 'rv-risk-low' : 'rv-risk-medium';
+        const filesStr = (f.files || []).map(x => esc(x)).join(', ');
+        html += '<div class="rv-fix-item"><div class="rv-fix-step">' + f.step + '</div><div class="rv-fix-body"><div style="font-weight:600;color:#f1f5f9;margin-bottom:4px">' + esc(f.action) + '</div>';
+        if (filesStr) html += '<div style="font-size:12px;color:#64748b;font-family:monospace;margin-bottom:4px">' + filesStr + '</div>';
+        html += '<span class="rv-risk ' + riskCls + '">' + esc(f.risk) + '</span></div></div>';
+      });
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  loadRecentRuns();
+  document.getElementById('repo-path').addEventListener('keydown', e => { if (e.key === 'Enter') submitAnalysis(); });
+</script>
+</body>
+</html>

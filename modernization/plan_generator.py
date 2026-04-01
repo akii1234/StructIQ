@@ -7,7 +7,7 @@ import logging
 from typing import Any, Dict, List
 
 from StructIQ.config import settings
-from StructIQ.llm.client import OpenAIClient
+from StructIQ.llm.client import LLMClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,12 +136,11 @@ def _find_task_explainability(tasks: list, action: str, from_target: str) -> dic
 class PlanGenerator:
     """Produce a sequential, risk-ordered execution plan."""
 
-    def __init__(self, llm_client: OpenAIClient | None = None) -> None:
+    def __init__(self, llm_client: LLMClient | None = None) -> None:
         self._llm_client = llm_client
 
-    def _get_client(self) -> OpenAIClient:
-        if self._llm_client is None:
-            self._llm_client = OpenAIClient()
+    def _get_client(self) -> LLMClient:
+        assert self._llm_client is not None, "_get_client called without an llm_client"
         return self._llm_client
 
     def generate(
@@ -238,7 +237,7 @@ class PlanGenerator:
         # Optional LLM summary.
         plan_summary = ""
         sequencing_notes = ""
-        if enable_llm and settings.enable_llm and execution_plan:
+        if enable_llm and self._llm_client is not None and execution_plan:
             try:
                 task_count = len(tasks_result.get("tasks") or [])
                 high_risk = sum(1 for p in paired if p["risk"] == "high")

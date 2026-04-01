@@ -150,7 +150,7 @@ class ChangeGenerator:
             elif task_type == "reduce_coupling" and target:
                 file_path = target[0]
                 p = Path(file_path)
-                utility_target = str(p.parent / "utils.py")
+                utility_target = str(p.parent / f"{p.stem}_utils{p.suffix or '.py'}")
                 changes.append(
                     {
                         "action": "extract_utility",

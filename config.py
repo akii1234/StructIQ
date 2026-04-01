@@ -44,7 +44,7 @@ class Settings:
     llm_max_chunks: int = int(os.getenv("LLM_MAX_CHUNKS", "20"))
     max_file_size: int = int(os.getenv("MAX_FILE_SIZE", "2000000"))
     cache_enabled: bool = _bool_env("CACHE_ENABLED", True)
-    enable_llm: bool = _bool_env("ENABLE_LLM", True)
+    enable_llm: bool = _bool_env("ENABLE_LLM", False)
     llm_high_priority_only: bool = _bool_env("LLM_HIGH_PRIORITY_ONLY", True)
     llm_medium_priority: bool = _bool_env("LLM_MEDIUM_PRIORITY", False)
     batch_size: int = int(os.getenv("BATCH_SIZE", "5"))

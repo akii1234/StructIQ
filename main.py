@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _build_orchestrator(model: str) -> tuple[DiscoveryOrchestrator, CacheManager]:
     """Create orchestrator + cache manager shared by CLI execution."""
-    llm_client = OpenAIClient(model=model)
+    llm_client = OpenAIClient(model=model) if settings.enable_llm else None
     cache_manager = CacheManager(enabled=settings.cache_enabled)
     orchestrator = DiscoveryOrchestrator(
         scanner=FileScanner(),
