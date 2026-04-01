@@ -215,6 +215,64 @@ class PlanGenerator:
             ),
         )
 
+        # Optional LLM summary.
+        plan_summary = ""
+        sequencing_notes = ""
+        if enable_llm and self._llm_client is not None and paired_sorted:
+            try:
+                task_count = len(tasks_result.get("tasks") or [])
+                high_risk = sum(1 for p in paired if p["risk"] == "high")
+                payload = {
+                    "task_count": task_count,
+                    "change_count": len(paired_sorted),
+                    "high_risk_changes": high_risk,
+                    "actions": [p["action"] for p in paired_sorted],
+                    "tasks": [
+                        {
+                            "from": p["from"],
+                            "action": p["action"],
+                            "why": p["why"],
+                            "impact_if_ignored": p["impact_if_ignored"],
+                        }
+                        for p in paired_sorted[:20]
+                    ],
+                }
+                prompt = (
+                    "You are a software modernization advisor. "
+                    "Return JSON with keys 'summary' and 'sequencing_notes'. "
+                    "'summary' must contain a 2-3 sentence "
+                    "plain-English executive summary of this modernization plan. "
+                    "'sequencing_notes' must be a 1-2 sentence explanation of which changes "
+                    "should be done first and why (including what they unblock or risk of delay). "
+                    "Be concise and actionable. Do not include code or markdown. "
+                    "'task_rationale' must be a list of objects with keys 'from', 'why', and 'impact_if_ignored'. "
+                    "For each task, rewrite 'why' as one specific sentence explaining the architectural risk for that "
+                    "exact file (mention the file name). Rewrite 'impact_if_ignored' as one sentence on the concrete "
+                    "consequence of deferring this change. Use plain English, no markdown, no code blocks."
+                )
+                response = self._get_client().generate_json(
+                    prompt, json.dumps(payload)
+                )
+                if isinstance(response, dict):
+                    plan_summary = str(response.get("summary", "")).strip()
+                    sequencing_notes = str(response.get("sequencing_notes", "")).strip()
+                    task_rationale_list = response.get("task_rationale")
+                    if isinstance(task_rationale_list, list):
+                        rationale_by_from = {
+                            str(r.get("from", "")): r
+                            for r in task_rationale_list
+                            if isinstance(r, dict)
+                        }
+                        for item in paired_sorted:
+                            r = rationale_by_from.get(item["from"])
+                            if r:
+                                if r.get("why"):
+                                    item["why"] = str(r["why"]).strip()
+                                if r.get("impact_if_ignored"):
+                                    item["impact_if_ignored"] = str(r["impact_if_ignored"]).strip()
+            except Exception:
+                pass
+
         execution_plan: List[str] = []
         for idx, item in enumerate(paired_sorted, start=1):
             steps = _render_steps(
@@ -233,37 +291,6 @@ class PlanGenerator:
                 execution_plan.append(f"  alternative: {item['alternative']}")
             for step_num, step in enumerate(steps, start=1):
                 execution_plan.append(f"  {idx}.{step_num}. {step}")
-
-        # Optional LLM summary.
-        plan_summary = ""
-        sequencing_notes = ""
-        if enable_llm and self._llm_client is not None and execution_plan:
-            try:
-                task_count = len(tasks_result.get("tasks") or [])
-                high_risk = sum(1 for p in paired if p["risk"] == "high")
-                payload = {
-                    "task_count": task_count,
-                    "change_count": len(paired_sorted),
-                    "high_risk_changes": high_risk,
-                    "actions": [p["action"] for p in paired_sorted],
-                }
-                prompt = (
-                    "You are a software modernization advisor. "
-                    "Return JSON with keys 'summary' and 'sequencing_notes'. "
-                    "'summary' must contain a 2-3 sentence "
-                    "plain-English executive summary of this modernization plan. "
-                    "'sequencing_notes' must be a 1-2 sentence explanation of which changes "
-                    "should be done first and why (including what they unblock or risk of delay). "
-                    "Be concise and actionable. Do not include code or markdown."
-                )
-                response = self._get_client().generate_json(
-                    prompt, json.dumps(payload)
-                )
-                if isinstance(response, dict):
-                    plan_summary = str(response.get("summary", "")).strip()
-                    sequencing_notes = str(response.get("sequencing_notes", "")).strip()
-            except Exception:
-                pass
 
         return {
             "execution_plan": execution_plan,

@@ -18,7 +18,7 @@ IGNORED_DIRECTORIES = [
     entry.strip().lower()
     for entry in os.getenv(
         "IGNORED_DIRECTORIES",
-        "__pycache__,venv,.git,node_modules,dist,build,target",
+        "__pycache__,venv,.git,node_modules,dist,build,target,migrations",
     ).split(",")
     if entry.strip()
 ]

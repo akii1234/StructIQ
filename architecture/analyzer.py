@@ -80,10 +80,17 @@ class ArchitectureAnalyzer:
             records, key=lambda r: (-r["total"], r["file"])
         )
 
+        # Boilerplate files that are always zero-coupling in Django/Python packages
+        _EXCLUDED_NAMES = {"__init__.py", "apps.py"}
+
         anti_patterns: List[dict] = []
         for idx, rec in enumerate(records_sorted):
-            if idx >= 10 and rec["total"] < threshold:
+            if idx >= 10:
                 break
+            if rec["total"] < threshold:
+                break
+            if Path(rec["file"]).name in _EXCLUDED_NAMES:
+                continue
             anti_patterns.append(
                 {
                     "type": "high_coupling",

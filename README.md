@@ -15,6 +15,8 @@ Point it at any codebase. It will:
 
 All four stages are deterministic and run for $0. LLM is an optional advisor for summaries only — never the decision-maker.
 
+Developer: django.devakhil21@gmail.com
+
 ---
 
 ## Quick Start
@@ -56,18 +58,34 @@ With LLM enabled:
 docker run -p 8000:8000 \
   -e OPENAI_API_KEY=your_openai_key \
   -e ENABLE_LLM=true \
+  -e LLM_PROVIDER=openai \
   -e API_KEY=your_api_key \
   -e ALLOWED_BASE_DIR=/repos \
   -v /your/repos:/repos \
   structiq
 ```
 
+**Browser UI:**
+
+Open `http://localhost:8000` in your browser for the interactive UI — start runs, monitor progress, and view reports without the CLI.
+
 **Analyze via API:**
 ```bash
-# Start a run
+# Start a run (LLM disabled)
 curl -X POST http://localhost:8000/analyze \
   -H "Content-Type: application/json" \
   -d '{"repo_path": "/repos/your-project"}'
+
+# Start a run with LLM enabled (OpenAI)
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_path": "/repos/your-project",
+    "enable_llm": true,
+    "llm_provider": "openai",
+    "llm_model": "gpt-4.1-mini",
+    "openai_api_key": "sk-..."
+  }'
 
 # Returns: {"run_id": "uuid", "status": "started"}
 ```
@@ -102,8 +120,9 @@ Set via environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required only if `ENABLE_LLM=true` |
 | `ENABLE_LLM` | `false` | Enable optional LLM calls for summaries and narratives |
+| `LLM_PROVIDER` | `openai` | LLM provider: `openai`, `anthropic`, `groq`, `ollama` |
+| `OPENAI_API_KEY` | — | API key for OpenAI (or compatible provider) |
 | `APP_MODE` | `cli` | Set to `api` to enable auth and path restrictions |
 | `API_KEY` | — | Required when `APP_MODE=api` |
 | `ALLOWED_BASE_DIR` | — | Required when `APP_MODE=api` — restricts analyzable paths |
@@ -111,6 +130,7 @@ Set via environment variables:
 | `MAX_CONCURRENT_RUNS` | `5` | API mode concurrency cap |
 | `MAX_WORKERS` | `4` | Parallel file processing threads |
 | `CACHE_ENABLED` | `true` | SHA256-based LLM result cache |
+| `IGNORED_DIRECTORIES` | `__pycache__,venv,.git,node_modules,dist,build,target,migrations` | Comma-separated list of directory names to skip during scanning |
 
 ---
 
@@ -207,7 +227,7 @@ Processes the dependency graph into architecture-level insights. Groups files in
 |---|---|---|
 | `cycle` | Circular dependency between files | High |
 | `god_file` | File with high Ca, Ce, and depth — centralises too many responsibilities | High |
-| `high_coupling` | File with unusually high total coupling (above 2× median, floor of 5) | Medium |
+| `high_coupling` | File with total coupling above 2× the project median (minimum threshold 4). Package boilerplate (`__init__.py`, `apps.py`) is excluded. | Medium |
 | `weak_boundary` | Module with significantly more external than internal dependencies | Medium |
 
 **Service clustering:** Files grouped by parent directory, then split into weakly connected components within each group, then merged if they share ≥2 imports.
@@ -254,7 +274,7 @@ PlanGenerator             → risk-ordered execution steps + optional LLM sequen
 |---|---|---|
 | `cycle` | `break_cycle` | `break_dependency` — removes closing edge of cycle |
 | `god_file` | `split_file` | `split_file` — suggests `{stem}_core{suffix}` sibling |
-| `high_coupling` | `reduce_coupling` | `extract_utility` — suggests `parent/utils.py` |
+| `high_coupling` | `reduce_coupling` | `extract_utility` — suggests `{stem}_utils{suffix}` (preserves original file extension) |
 | `weak_boundary` | `extract_module` | `extract_module` — suggests `{module}_extracted` |
 
 **Task dominance filtering:** If `break_cycle` or `split_file` already targets file X, any `reduce_coupling` task on file X is removed as dominated. Dominated tasks are preserved in `dominated_tasks` with a `dominated_by` explanation.
@@ -316,10 +336,11 @@ All endpoints accept an optional `X-Api-Key` header (required when `APP_MODE=api
 
 | Method | Endpoint | Description |
 |---|---|---|
+| `GET` | `/` | Browser UI |
 | `GET` | `/health` | Service health check |
 | `GET` | `/runs` | List all runs with status |
 | `POST` | `/analyze` | Start an async analysis run |
-| `GET` | `/status/{run_id}` | Run status and per-phase status |
+| `GET` | `/status/{run_id}` | Run status, per-phase status, and LLM usage stats |
 | `GET` | `/results/{run_id}` | Phase 1 discovery output |
 | `GET` | `/dependency/graph/{run_id}` | Dependency graph |
 | `GET` | `/dependency/analysis/{run_id}` | Dependency metrics |
@@ -327,6 +348,19 @@ All endpoints accept an optional `X-Api-Key` header (required when `APP_MODE=api
 | `GET` | `/modernization/plan/{run_id}` | Full modernization plan |
 | `GET` | `/report/{run_id}` | Self-contained HTML report (completed runs only) |
 | `POST` | `/explain/{run_id}` | Answer a plain-English question about a completed run |
+
+**`POST /analyze` request body:**
+```json
+{
+  "repo_path": "/path/to/project",
+  "enable_llm": false,
+  "llm_provider": "openai",
+  "llm_model": "gpt-4.1-mini",
+  "openai_api_key": "sk-..."
+}
+```
+
+`llm_provider` accepts: `openai`, `anthropic`, `groq`, `ollama`. Provider and model are per-run — no server restart needed to switch.
 
 **Status response:**
 ```json
@@ -336,7 +370,15 @@ All endpoints accept an optional `X-Api-Key` header (required when `APP_MODE=api
   "progress": { "total_files": 142, "processed": 138, "skipped": 4, "failed": 0 },
   "phase2_status": "ok",
   "phase3_status": "ok",
-  "phase4_status": "ok"
+  "phase4_status": "ok",
+  "llm_stats": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "gpt-4.1-mini",
+    "phase1_enabled": true,
+    "phase3_narrative": true,
+    "phase4_summary": true
+  }
 }
 ```
 
@@ -346,11 +388,16 @@ Run status values: `running` | `phase2_running` | `phase3_running` | `phase4_run
 
 ---
 
-## Example Report
+## HTML Report
 
-A pre-generated example report is available at [`examples/report.html`](examples/report.html).
+The report is a self-contained HTML file served at `GET /report/{run_id}`. It includes:
 
-To regenerate it:
+- **Overview** — file count, service count, anti-pattern count, decision badge, LLM provider/phases used
+- **Dependency Graph** — interactive Cytoscape.js graph with dagre layout. Double-click any module node to drill into its file-level view. Green = entry point, red = anti-pattern, dashed = external module stub. Export button saves a PNG.
+- **Architecture** — anti-pattern cards with severity, location, and coupling metrics
+- **Plan** — risk-ordered execution steps with per-change rationale, impact, and alternatives
+
+A pre-generated example is at [`examples/report.html`](examples/report.html). To regenerate:
 ```bash
 python scripts/generate_example.py
 ```
@@ -359,17 +406,30 @@ python scripts/generate_example.py
 
 ## LLM Usage
 
-StructIQ runs fully without an LLM. When `ENABLE_LLM=true`:
+StructIQ runs fully without an LLM. LLM is opt-in per run — enabled via the UI toggle, the `/analyze` request body, or the `ENABLE_LLM` env var.
 
-| Phase | Component | What it does | When it fires |
+**Supported providers:**
+
+| Provider | Default model | Notes |
+|---|---|---|
+| `openai` | `gpt-4.1-mini` | Requires `OPENAI_API_KEY` or key in request |
+| `anthropic` | `claude-haiku-4-5-20251001` | Requires `ANTHROPIC_API_KEY` or key in request |
+| `groq` | `llama-3.1-8b-instant` | Requires `GROQ_API_KEY` or key in request |
+| `ollama` | `llama3.2` | Requires local Ollama server at `http://localhost:11434` |
+
+**What LLM adds when enabled:**
+
+| Phase | Component | What it does | Calls per run |
 |---|---|---|---|
-| Phase 1 | Summarizer | Plain-English summaries for high-complexity files | Per high-priority file |
-| Phase 3 | RecommendationEngine | Architecture recommendations + `root_cause_narrative` connecting all anti-patterns | 1 call per run |
-| Phase 4 | PlanGenerator | Executive summary (`plan_summary`) + `sequencing_notes` on change ordering | 1 call per run |
-| Reporting | ReportGenerator | Plain-English architectural story for the report header | 1 call per report |
-| API | `/explain/{run_id}` | Answers plain-English questions using the modernization plan as context | 1 call per request |
+| Phase 1 | Summarizer | Plain-English summaries for high-complexity files | 1 per high-priority file |
+| Phase 3 | RecommendationEngine | Architecture recommendations + `root_cause_narrative` | 1 |
+| Phase 4 | PlanGenerator | `plan_summary` + `sequencing_notes` + per-task rationale enrichment | 1 |
+| Reporting | ReportGenerator | Plain-English architectural story for the report header | 1 per report |
+| API | `/explain/{run_id}` | Answers plain-English questions using the plan as context | 1 per request |
 
-All LLM calls use compressed payloads — raw file content is never sent. LLM failures are non-fatal; the pipeline continues without the optional output.
+The Phase 4 call also enriches each change's `rationale` and `impact_if_ignored` with file-specific language — replacing the deterministic template text with context-aware explanations for each file.
+
+All LLM calls use compressed payloads — raw file content is never sent. LLM failures are non-fatal; the pipeline continues with deterministic output if any call fails.
 
 ---
 
@@ -426,8 +486,16 @@ Runs are resumable. If a run is interrupted, restarting with the same `repo_path
 
 **Phase 5 (complete)** — Decision Intelligence: confidence scoring with interpretable factors, multi-strategy evaluation per anti-pattern type, context-aware plan adaptation (direct vs staged), task dominance filtering.
 
-**Phase 5 LLM enhancements (complete)** — `root_cause_narrative`, `sequencing_notes`, report narrative header, `POST /explain/{run_id}`.
+**Phase 5 LLM enhancements (complete)** — `root_cause_narrative`, `sequencing_notes`, report narrative header, `POST /explain/{run_id}`, multi-provider LLM support (OpenAI / Anthropic / Groq / Ollama), per-run LLM config, per-task rationale enrichment.
 
-**Phase 5.5 (planned)** — Feedback loop for confidence calibration based on execution outcomes.
+**Reporting enhancements (complete)** — Interactive Cytoscape.js dependency graph with module drill-down, LLM usage card, file-specific rationale text, correct extract_utility targets per language, coupling threshold calibration.
+
+**Phase 5.5 (planned)** — Architecture Review tab: deterministic structured review (severity table, coupling map, fix order) derived from existing phase outputs.
 
 **Phase 6 (future)** — Developer-in-the-loop assisted refactoring.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
