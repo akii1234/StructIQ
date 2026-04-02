@@ -159,6 +159,17 @@ def run_cli_sync(project_directory: str, output_path: str, model: str) -> None:
     logger.info("Discovery pipeline completed.")
 
 
+def _read_plan_decision(output_path: str) -> str | None:
+    """Read modernization plan decision. Returns None on any error."""
+    import json as _json
+    plan_path = Path(output_path).parent / "modernization_plan.json"
+    try:
+        data = _json.loads(plan_path.read_text(encoding="utf-8"))
+        return data.get("decision") if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
 def main() -> None:
     """CLI/API entrypoint: explicit sync CLI path or API server path."""
     args = build_parser().parse_args()
@@ -183,6 +194,10 @@ def main() -> None:
         output_path=args.output,
         model=args.model,
     )
+    decision = _read_plan_decision(args.output)
+    if decision == "action_required":
+        import sys as _sys
+        _sys.exit(1)
 
 
 if __name__ == "__main__":
