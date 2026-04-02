@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from pathlib import Path
 import uuid
 
@@ -160,13 +162,14 @@ def run_cli_sync(project_directory: str, output_path: str, model: str) -> None:
 
 
 def _read_plan_decision(output_path: str) -> str | None:
-    """Read modernization plan decision. Returns None on any error."""
-    import json as _json
+    """Read modernization plan decision from completed run.
+    Returns None if file is missing, unreadable, or contains invalid JSON.
+    """
     plan_path = Path(output_path).parent / "modernization_plan.json"
     try:
-        data = _json.loads(plan_path.read_text(encoding="utf-8"))
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
         return data.get("decision") if isinstance(data, dict) else None
-    except Exception:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
 
 
@@ -196,8 +199,7 @@ def main() -> None:
     )
     decision = _read_plan_decision(args.output)
     if decision == "action_required":
-        import sys as _sys
-        _sys.exit(1)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
