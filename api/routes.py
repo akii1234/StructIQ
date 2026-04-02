@@ -14,6 +14,7 @@ from pydantic import BaseModel, field_validator
 
 from StructIQ.config import IS_API_MODE
 from StructIQ.services.run_manager import RunManager
+from StructIQ.api.models import HealthResponse, AnalyzeResponse, ExplainResponse, RunSummary
 
 
 class AnalyzeRequest(BaseModel):
@@ -95,9 +96,9 @@ def validate_api_key(x_api_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
 @app.get("/", response_class=FileResponse)
@@ -106,11 +107,15 @@ def index() -> str:
     return str(Path(__file__).parent.parent / "static" / "index.html")
 
 
-@app.get("/runs")
-def list_runs(x_api_key: str | None = Header(default=None)) -> list[dict]:
+@app.get("/runs", response_model=list[RunSummary])
+def list_runs(x_api_key: str | None = Header(default=None)) -> list[RunSummary]:
     """List all runs with their current status."""
     validate_api_key(x_api_key)
-    return run_manager.list_runs()
+    rows = run_manager.list_runs()
+    return [
+        RunSummary(**r) if isinstance(r, dict) else RunSummary(run_id=str(r), status="unknown")
+        for r in rows
+    ]
 
 
 def _release_slot_when_done(run_id: str) -> None:
@@ -128,8 +133,8 @@ def _release_slot_when_done(run_id: str) -> None:
             active_runs = max(0, active_runs - 1)
 
 
-@app.post("/analyze")
-def analyze(request: AnalyzeRequest, x_api_key: str | None = Header(default=None)) -> dict[str, str]:
+@app.post("/analyze", response_model=AnalyzeResponse)
+def analyze(request: AnalyzeRequest, x_api_key: str | None = Header(default=None)) -> AnalyzeResponse:
     """Start async analysis run."""
     global active_runs
     validate_api_key(x_api_key)
@@ -160,7 +165,7 @@ def analyze(request: AnalyzeRequest, x_api_key: str | None = Header(default=None
         elif IS_API_MODE:
             with _active_runs_lock:
                 active_runs = max(0, active_runs - 1)
-    return {"run_id": run_id, "status": "started"}
+    return AnalyzeResponse(run_id=run_id, status="started")
 
 
 @app.get("/status/{run_id}")
@@ -325,8 +330,8 @@ def review(run_id: str, x_api_key: str | None = Header(default=None)) -> dict:
     return generate_review(dep_analysis, arch_insights, mod_plan, discovery)
 
 
-@app.post("/explain/{run_id}")
-def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header(default=None)) -> dict:
+@app.post("/explain/{run_id}", response_model=ExplainResponse)
+def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header(default=None)) -> ExplainResponse:
     """Answer a plain-English question about a completed run using the modernization plan."""
     validate_api_key(x_api_key)
     status_payload = run_manager.get_status(run_id)
@@ -398,7 +403,7 @@ def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header
         answer = str(response.get("answer", "")).strip() if isinstance(response, dict) else ""
         if not answer:
             raise HTTPException(status_code=500, detail="LLM returned an empty answer")
-        return {"run_id": run_id, "question": request.question, "answer": answer}
+        return ExplainResponse(run_id=run_id, question=request.question, answer=answer)
     except HTTPException:
         raise
     except Exception as exc:
