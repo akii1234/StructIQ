@@ -1,9 +1,12 @@
+from fastapi.testclient import TestClient
+
 from StructIQ.api.models import (
     HealthResponse,
     AnalyzeResponse,
     ExplainResponse,
     RunSummary,
 )
+from StructIQ.api.routes import app
 
 
 def test_health_response_shape():
@@ -23,5 +26,13 @@ def test_explain_response_shape():
 
 
 def test_run_summary_shape():
-    r = RunSummary(run_id="abc", status="completed", created_at="2026-04-02T00:00:00Z")
+    r = RunSummary(run_id="abc", status="completed")
     assert r.run_id == "abc"
+    assert r.progress is None
+
+
+def test_runs_endpoint_returns_list():
+    client = TestClient(app)
+    resp = client.get("/runs")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)

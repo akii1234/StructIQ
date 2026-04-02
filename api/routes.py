@@ -112,10 +112,7 @@ def list_runs(x_api_key: str | None = Header(default=None)) -> list[RunSummary]:
     """List all runs with their current status."""
     validate_api_key(x_api_key)
     rows = run_manager.list_runs()
-    return [
-        RunSummary(**r) if isinstance(r, dict) else RunSummary(run_id=str(r), status="unknown")
-        for r in rows
-    ]
+    return [RunSummary(**r) for r in rows]
 
 
 def _release_slot_when_done(run_id: str) -> None:

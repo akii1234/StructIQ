@@ -1,7 +1,7 @@
 """Pydantic response models for all API endpoints."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Literal
 from pydantic import BaseModel
 
 
@@ -17,8 +17,7 @@ class AnalyzeResponse(BaseModel):
 class RunSummary(BaseModel):
     run_id: str
     status: str
-    created_at: str | None = None
-    repo_path: str | None = None
+    progress: dict | None = None
 
 
 class ExplainResponse(BaseModel):
@@ -31,7 +30,7 @@ class CompareMetricResult(BaseModel):
     run_a: float
     run_b: float
     delta: float
-    direction: str  # "improved" | "regressed" | "unchanged"
+    direction: Literal["improved", "regressed", "unchanged"]
 
 
 class CompareResponse(BaseModel):
