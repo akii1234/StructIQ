@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from StructIQ.generators.json_writer import read_json_file, write_json_output
+from StructIQ.reporting.health_score import compute_health_score as _compute_hs
 from StructIQ.modernization.change_generator import ChangeGenerator
 from StructIQ.modernization.impact_analyzer import ImpactAnalyzer
 from StructIQ.modernization.plan_generator import PlanGenerator
@@ -107,6 +108,13 @@ def run_modernization_pipeline(
                 "execution_plan": [],
                 "plan_summary": "No significant modernization required",
             }
+            try:
+                _dep = read_json_file(str(Path(run_dir) / "dependency_analysis.json")) or {}
+                _arch = read_json_file(insights_path) or {}
+                _p1 = read_json_file(str(Path(run_dir) / "output.json")) or {}
+                modernization_plan["health_score"] = _compute_hs(_dep, _arch, _p1)
+            except Exception as _hs_exc:
+                logger.warning("Health score computation failed (non-fatal): %s", _hs_exc)
             plan_path = str(Path(run_dir) / "modernization_plan.json")
             write_json_output(modernization_plan, plan_path)
             logger.info(
@@ -146,6 +154,13 @@ def run_modernization_pipeline(
             "plan_summary": plan_result.get("plan_summary", ""),
         }
 
+        try:
+            _dep = read_json_file(str(Path(run_dir) / "dependency_analysis.json")) or {}
+            _arch = read_json_file(insights_path) or {}
+            _p1 = read_json_file(str(Path(run_dir) / "output.json")) or {}
+            modernization_plan["health_score"] = _compute_hs(_dep, _arch, _p1)
+        except Exception as _hs_exc:
+            logger.warning("Health score computation failed (non-fatal): %s", _hs_exc)
         plan_path = str(Path(run_dir) / "modernization_plan.json")
         write_json_output(modernization_plan, plan_path)
         logger.info(
