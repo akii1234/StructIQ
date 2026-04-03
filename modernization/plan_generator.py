@@ -82,7 +82,7 @@ def _render_steps(
     use_staged: bool = False,
     line_number: int | None = None,
 ) -> List[str]:
-    line_hint = f" at line {line_number}" if line_number else ""
+    line_hint = f" at line {line_number}" if line_number is not None else ""
     template_source = _STAGED_STEP_TEMPLATES if use_staged else _STEP_TEMPLATES
     templates = template_source.get(
         action,

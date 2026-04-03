@@ -365,6 +365,7 @@ class ModernizationPlanner:
                     "strategy_score": strategy_score,
                     "strategy_reason": strategy_reason,
                     "alternatives": strategy_alternatives,
+                    "line_number": (ap.get("closing_edge") or {}).get("line_number"),
                 }
             )
 

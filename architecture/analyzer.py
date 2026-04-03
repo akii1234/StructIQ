@@ -28,6 +28,7 @@ class ArchitectureAnalyzer:
                     "files": files,
                     "severity": "high",
                     "description": "Circular dependency between modules/files.",
+                    "closing_edge": cycle.get("closing_edge") if isinstance(cycle, dict) else None,
                 }
             )
         return anti_patterns

@@ -129,6 +129,7 @@ class ChangeGenerator:
                         "why": why,
                         "impact_if_ignored": impact_if_ignored,
                         "alternative": alternative,
+                        "line_number": task.get("line_number"),
                     }
                 )
 

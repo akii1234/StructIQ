@@ -137,6 +137,8 @@ def extract_imports(
         return out
 
     if lang in {"javascript", "typescript", "js", "ts", "tsx", "jsx"}:
+        # Note: multi-line named imports (e.g. `import {\n  foo,\n  bar\n} from './utils'`)
+        # are not matched by per-line regex. This is a known gap for TypeScript-heavy codebases.
         # Pattern 4: import('...') dynamic
         dynamic_import_pat = re.compile(r"import\s*\(\s*['\"](.+?)['\"]\s*\)")
         # Pattern 1: import ... from '...'
