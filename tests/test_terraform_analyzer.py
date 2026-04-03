@@ -99,6 +99,23 @@ def test_direct_invocation_skips_missing_file():
     assert results == []
 
 
+def test_direct_invocation_deduplicates_same_handler_across_tf_files(tmp_path):
+    handler = tmp_path / "handler.py"
+    handler.write_text(textwrap.dedent("""\
+        import boto3
+        def process(event, ctx):
+            client = boto3.client('lambda')
+            client.invoke(FunctionName='other-fn', Payload=b'{}')
+    """))
+    graph = _make_graph(edges=[
+        _tf_edge("infra/a.tf", str(handler)),
+        _tf_edge("infra/b.tf", str(handler)),
+    ])
+    results = TerraformAnalyzer().detect_direct_lambda_invocations(graph)
+    assert len(results) == 1
+    assert results[0]["handler_file"] == str(handler)
+
+
 # --- shared_iam_role ---
 
 def test_shared_iam_role_detected():

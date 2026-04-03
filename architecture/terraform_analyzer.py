@@ -71,9 +71,15 @@ class TerraformAnalyzer:
         """Flag Lambda handlers that synchronously invoke other Lambdas via boto3."""
         lambda_edges = self._lambda_handler_edges(graph)
         anti_patterns: list[dict] = []
+        seen: set[str] = set()
 
         for edge in lambda_edges:
             handler_fp = str(edge.get("target", ""))
+            if not handler_fp:
+                continue
+            if handler_fp in seen:
+                continue
+            seen.add(handler_fp)
             try:
                 content = Path(handler_fp).read_text(encoding="utf-8", errors="ignore")
             except OSError:
