@@ -115,6 +115,25 @@ def run_modernization_pipeline(
                 modernization_plan["health_score"] = _compute_hs(_dep, _arch, _p1)
             except Exception as _hs_exc:
                 logger.warning("Health score computation failed (non-fatal): %s", _hs_exc)
+            if enable_llm and llm_client is not None and isinstance(modernization_plan.get("health_score"), dict):
+                try:
+                    from StructIQ.llm.trust.score_rationale import generate_score_rationale
+                    _hs = modernization_plan["health_score"]
+                    _rationale = generate_score_rationale(
+                        score=_hs.get("score", 0),
+                        grade=_hs.get("grade", ""),
+                        components=_hs.get("components", {}),
+                        cycle_count=len((_dep or {}).get("cycles") or []),
+                        god_file_count=sum(
+                            1 for _p in ((_arch or {}).get("anti_patterns") or [])
+                            if isinstance(_p, dict) and _p.get("type") == "god_file"
+                        ),
+                        llm_client=llm_client,
+                    )
+                    if _rationale:
+                        modernization_plan["health_score"]["rationale"] = _rationale
+                except Exception as _rat_exc:
+                    logger.warning("Health score rationale failed (non-fatal): %s", _rat_exc)
             plan_path = str(Path(run_dir) / "modernization_plan.json")
             write_json_output(modernization_plan, plan_path)
             logger.info(
@@ -161,6 +180,25 @@ def run_modernization_pipeline(
             modernization_plan["health_score"] = _compute_hs(_dep, _arch, _p1)
         except Exception as _hs_exc:
             logger.warning("Health score computation failed (non-fatal): %s", _hs_exc)
+        if enable_llm and llm_client is not None and isinstance(modernization_plan.get("health_score"), dict):
+            try:
+                from StructIQ.llm.trust.score_rationale import generate_score_rationale
+                _hs = modernization_plan["health_score"]
+                _rationale = generate_score_rationale(
+                    score=_hs.get("score", 0),
+                    grade=_hs.get("grade", ""),
+                    components=_hs.get("components", {}),
+                    cycle_count=len((_dep or {}).get("cycles") or []),
+                    god_file_count=sum(
+                        1 for _p in ((_arch or {}).get("anti_patterns") or [])
+                        if isinstance(_p, dict) and _p.get("type") == "god_file"
+                    ),
+                    llm_client=llm_client,
+                )
+                if _rationale:
+                    modernization_plan["health_score"]["rationale"] = _rationale
+            except Exception as _rat_exc:
+                logger.warning("Health score rationale failed (non-fatal): %s", _rat_exc)
         plan_path = str(Path(run_dir) / "modernization_plan.json")
         write_json_output(modernization_plan, plan_path)
         logger.info(
