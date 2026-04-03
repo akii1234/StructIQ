@@ -371,12 +371,25 @@ def build_graph(
                     pair_to_edge_meta[pair] = {
                         "raw_import": raw_import,
                         "line_number": rec.get("line_number"),
+                        "role_arn": rec.get("role_arn")
+                        if import_kind == "tf_lambda_handler"
+                        else None,
                         "edge_type": (
                             import_kind
                             if import_kind in {"tf_lambda_handler", "tf_module"}
                             else None
                         ),
                     }
+                else:
+                    # If multiple terraform records resolve to the same pair, preserve
+                    # the first non-null role_arn for tf_lambda_handler edges.
+                    if import_kind == "tf_lambda_handler":
+                        existing = pair_to_edge_meta.get(pair) or {}
+                        if not existing.get("role_arn"):
+                            new_role = rec.get("role_arn")
+                            if new_role:
+                                existing["role_arn"] = new_role
+                                pair_to_edge_meta[pair] = existing
             else:
                 if attempted_resolution:
                     reason = "not_found"
@@ -403,6 +416,7 @@ def build_graph(
                 "raw_import": meta.get("raw_import", ""),
                 "line_number": meta.get("line_number"),
                 "edge_type": meta.get("edge_type"),
+                "role_arn": meta.get("role_arn"),
             }
         )
 

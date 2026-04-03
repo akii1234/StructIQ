@@ -135,6 +135,7 @@ def test_tf_lambda_handler_edge_has_edge_type(tmp_path):
     )
     assert lambda_edge is not None
     assert lambda_edge.get("edge_type") == "tf_lambda_handler"
+    assert lambda_edge.get("role_arn") == "aws_iam_role.exec.arn"
 
 
 def test_unresolved_tf_lambda_does_not_crash(tmp_path):
