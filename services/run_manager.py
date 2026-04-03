@@ -194,6 +194,26 @@ class RunManager:
         plan_path = DATA_DIR / run_id / "modernization_plan.json"
         return read_json_file(str(plan_path), {})
 
+    def get_run_data_for_compare(self, run_id: str) -> dict | None:
+        """Load all data needed for run comparison. Returns None if run not found."""
+        run_dir = DATA_DIR / run_id
+        if not run_dir.exists():
+            return None
+        try:
+            plan = read_json_file(str(run_dir / "modernization_plan.json")) or {}
+            dep_analysis = read_json_file(str(run_dir / "dependency_analysis.json")) or {}
+            arch_insights = read_json_file(str(run_dir / "architecture_insights.json")) or {}
+            phase1 = read_json_file(str(run_dir / "output.json")) or {}
+            health = plan.get("health_score") or {}
+            return {
+                "health": health,
+                "dep_analysis": dep_analysis,
+                "arch_insights": arch_insights,
+                "phase1": phase1,
+            }
+        except Exception:
+            return None
+
     def get_report_path(self, run_id: str) -> str | None:
         """Return path to report.html if it exists for a run."""
         if not re.fullmatch(

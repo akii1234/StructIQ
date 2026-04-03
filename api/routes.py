@@ -14,7 +14,7 @@ from pydantic import BaseModel, field_validator
 
 from StructIQ.config import IS_API_MODE
 from StructIQ.services.run_manager import RunManager
-from StructIQ.api.models import HealthResponse, AnalyzeResponse, ExplainResponse, RunSummary
+from StructIQ.api.models import HealthResponse, AnalyzeResponse, ExplainResponse, RunSummary, CompareResponse, CompareMetricResult
 
 
 class AnalyzeRequest(BaseModel):
@@ -405,3 +405,35 @@ def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+
+
+@app.get("/compare/{run_id_a}/{run_id_b}", response_model=CompareResponse)
+def compare(
+    run_id_a: str,
+    run_id_b: str,
+    x_api_key: str | None = Header(default=None),
+) -> CompareResponse:
+    """Compare two completed runs — returns delta per metric."""
+    validate_api_key(x_api_key)
+
+    from StructIQ.reporting.comparator import compare_runs
+
+    data_a = run_manager.get_run_data_for_compare(run_id_a)
+    data_b = run_manager.get_run_data_for_compare(run_id_b)
+
+    if not data_a:
+        raise HTTPException(status_code=404, detail=f"Run {run_id_a} not found or incomplete")
+    if not data_b:
+        raise HTTPException(status_code=404, detail=f"Run {run_id_b} not found or incomplete")
+
+    delta = compare_runs(data_a, data_b)
+
+    return CompareResponse(
+        run_id_a=run_id_a,
+        run_id_b=run_id_b,
+        health_score=CompareMetricResult(**delta["health_score"]),
+        cycles=CompareMetricResult(**delta["cycles"]),
+        god_files=CompareMetricResult(**delta["god_files"]),
+        weak_boundaries=CompareMetricResult(**delta["weak_boundaries"]),
+        high_coupling_files=CompareMetricResult(**delta["high_coupling_files"]),
+    )
