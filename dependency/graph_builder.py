@@ -301,6 +301,68 @@ def build_graph(
                     )
                     continue
 
+            elif lang == "terraform":
+                if import_kind == "tf_module":
+                    attempted_resolution = True
+                    # source = "./modules/vpc" — resolve relative to the .tf file's directory
+                    # Try: source/main.tf, source.tf, source/variables.tf
+                    base = Path(source_fp).parent / import_target
+                    candidates: list[Path] = [
+                        base / "main.tf",
+                        Path(str(base) + ".tf"),
+                        base / "variables.tf",
+                    ]
+                    for c in candidates:
+                        c_abs = _to_abs_str(c)
+                        if c_abs in file_index:
+                            target_fp = c_abs
+                            break
+
+                elif import_kind == "tf_lambda_handler":
+                    attempted_resolution = True
+                    # filename = "../../src/handlers/checkout.zip"
+                    # Strip zip/jar/war suffix, try .py / .js / .ts extension
+                    raw_path = import_target
+                    base = Path(source_fp).parent / raw_path
+                    stem = base.stem  # strips .zip
+                    parent = base.parent
+                    for ext in [".py", ".js", ".ts", ".go"]:
+                        cand = parent / (stem + ext)
+                        cand_abs = _to_abs_str(cand)
+                        if cand_abs in file_index:
+                            target_fp = cand_abs
+                            break
+
+                    # Best-effort fallback: if the relative path escapes the project
+                    # root (e.g. filename uses extra ../ segments), clamp by stripping
+                    # leading ".." parts and resolving from project_root_path.
+                    if target_fp is None:
+                        parts = list(Path(raw_path).parts)
+                        while parts and parts[0] == "..":
+                            parts = parts[1:]
+                        if parts:
+                            clamped_base = project_root_path.joinpath(*parts)
+                            clamped_stem = clamped_base.stem
+                            clamped_parent = clamped_base.parent
+                            for ext in [".py", ".js", ".ts", ".go"]:
+                                cand = clamped_parent / (clamped_stem + ext)
+                                cand_abs = _to_abs_str(cand)
+                                if cand_abs in file_index:
+                                    target_fp = cand_abs
+                                    break
+
+                else:
+                    unresolved.append(
+                        {
+                            "source": source_file,
+                            "raw_import": raw_import,
+                            "import_target": import_target,
+                            "import_kind": import_kind,
+                            "reason": import_kind,
+                        }
+                    )
+                    continue
+
             # Unknown/unresolvable types
             if target_fp is not None:
                 pair = (source_file, target_fp)
@@ -309,6 +371,11 @@ def build_graph(
                     pair_to_edge_meta[pair] = {
                         "raw_import": raw_import,
                         "line_number": rec.get("line_number"),
+                        "edge_type": (
+                            import_kind
+                            if import_kind in {"tf_lambda_handler", "tf_module"}
+                            else None
+                        ),
                     }
             else:
                 if attempted_resolution:
@@ -335,6 +402,7 @@ def build_graph(
                 "target": target_fp,
                 "raw_import": meta.get("raw_import", ""),
                 "line_number": meta.get("line_number"),
+                "edge_type": meta.get("edge_type"),
             }
         )
 
