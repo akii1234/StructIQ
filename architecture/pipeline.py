@@ -141,6 +141,57 @@ def run_architecture_pipeline(
         if not isinstance(services, dict):
             services = {}
 
+        # Task 8: Cycle intent classification (optional LLM enrichment)
+        if enable_llm and llm_client is not None:
+            try:
+                from StructIQ.llm.trust.cycle_classifier import classify_cycle
+                cycle_patterns = [p for p in anti_patterns if p.get("type") == "cycle"]
+                for pattern in cycle_patterns[:5]:
+                    files = pattern.get("files") or []
+                    if len(files) < 2:
+                        continue
+                    src_path, tgt_path = files[0], files[1]
+                    try:
+                        src_content = Path(src_path).read_text(encoding="utf-8", errors="ignore")[:1500]
+                        tgt_content = Path(tgt_path).read_text(encoding="utf-8", errors="ignore")[:1500]
+                    except OSError:
+                        continue
+                    result = classify_cycle(
+                        source_file=src_path,
+                        source_content=src_content,
+                        target_file=tgt_path,
+                        target_content=tgt_content,
+                        raw_import=pattern.get("raw_import", ""),
+                        llm_client=llm_client,
+                    )
+                    pattern["cycle_intent"] = result.to_dict()
+            except Exception as exc:
+                logger.warning("Cycle intent classification failed (non-fatal): %s", exc)
+
+        # Task 9: Anti-pattern confirmation (optional LLM enrichment)
+        if enable_llm and llm_client is not None:
+            try:
+                from StructIQ.llm.trust.antipattern_confirmer import confirm_antipattern
+                confirmable_types = {"god_file", "high_coupling", "weak_boundary"}
+                confirmable = [p for p in anti_patterns if p.get("type") in confirmable_types]
+                for pattern in confirmable[:3]:
+                    file_path = pattern.get("file") or (pattern.get("files") or [None])[0]
+                    if not file_path:
+                        continue
+                    try:
+                        content = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+                    except OSError:
+                        continue
+                    verdict = confirm_antipattern(
+                        pattern_type=pattern.get("type", ""),
+                        file_path=file_path,
+                        file_content=content,
+                        llm_client=llm_client,
+                    )
+                    pattern["confirmation"] = verdict.to_dict()
+            except Exception as exc:
+                logger.warning("Anti-pattern confirmation failed (non-fatal): %s", exc)
+
         insights = {
             "run_id": run_id,
             "generated_at": generated_at,
