@@ -288,5 +288,9 @@ def extract_imports(
 
         return out
 
+    if lang == "terraform":
+        from StructIQ.dependency.terraform_extractor import extract_terraform_records
+        return extract_terraform_records(file_path, lines)
+
     return out
 

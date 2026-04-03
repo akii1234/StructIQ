@@ -9,7 +9,7 @@ SUPPORTED_EXTENSIONS = [
     ext.strip().lower()
     for ext in os.getenv(
         "SUPPORTED_EXTENSIONS",
-        ".py,.js,.ts,.java,.go",
+        ".py,.js,.ts,.java,.go,.tf",
     ).split(",")
     if ext.strip()
 ]
