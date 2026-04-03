@@ -14,9 +14,14 @@ class ArchitectureAnalyzer:
         cycles = analysis.get("cycles") or []
         anti_patterns: List[dict] = []
         for cycle in cycles:
-            if not isinstance(cycle, list) or not cycle:
+            if isinstance(cycle, dict):
+                files = [str(f) for f in (cycle.get("files") or [])]
+            elif isinstance(cycle, list):
+                files = [str(f) for f in cycle]
+            else:
                 continue
-            files = [str(f) for f in cycle]
+            if not files:
+                continue
             anti_patterns.append(
                 {
                     "type": "cycle",

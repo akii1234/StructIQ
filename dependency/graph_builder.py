@@ -126,7 +126,7 @@ def build_graph(
 
     # 5. Resolve imports
     resolved_pairs: set[tuple[str, str]] = set()
-    pair_to_raw_import: dict[tuple[str, str], str] = {}
+    pair_to_edge_meta: dict[tuple[str, str], dict] = {}
     unresolved: list[dict] = []
 
     for source_fp in sorted(file_index):
@@ -189,6 +189,17 @@ def build_graph(
                     target_fp = dotted_to_path.get(import_target)
                     if target_fp is None:
                         target_fp = dotted_to_path.get(import_target + ".__init__")
+                elif import_kind == "external":
+                    # Best-effort fallback: the extractor may have mis-classified a
+                    # local module as external (e.g. when the file lives at the project
+                    # root and isn't part of a package hierarchy).  Try dotted_to_path
+                    # before giving up.
+                    candidate = dotted_to_path.get(import_target)
+                    if candidate is None:
+                        candidate = dotted_to_path.get(import_target + ".__init__")
+                    if candidate is not None:
+                        attempted_resolution = True
+                        target_fp = candidate
 
                 if target_fp is None and import_kind in {"stdlib", "external", "dynamic"}:
                     unresolved.append(
@@ -294,8 +305,11 @@ def build_graph(
             if target_fp is not None:
                 pair = (source_file, target_fp)
                 resolved_pairs.add(pair)
-                if pair not in pair_to_raw_import:
-                    pair_to_raw_import[pair] = raw_import
+                if pair not in pair_to_edge_meta:
+                    pair_to_edge_meta[pair] = {
+                        "raw_import": raw_import,
+                        "line_number": rec.get("line_number"),
+                    }
             else:
                 if attempted_resolution:
                     reason = "not_found"
@@ -314,12 +328,13 @@ def build_graph(
     # 6. Collect resolved edges
     edges: list[dict] = []
     for source_fp, target_fp in sorted(resolved_pairs):
-        raw_import = pair_to_raw_import.get((source_fp, target_fp), "")
+        meta = pair_to_edge_meta.get((source_fp, target_fp), {})
         edges.append(
             {
                 "source": source_fp,
                 "target": target_fp,
-                "raw_import": raw_import,
+                "raw_import": meta.get("raw_import", ""),
+                "line_number": meta.get("line_number"),
             }
         )
 

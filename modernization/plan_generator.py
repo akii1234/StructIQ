@@ -14,7 +14,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _STEP_TEMPLATES: Dict[str, List[str]] = {
     "break_dependency": [
-        "Identify the import of `{to}` inside `{from}` that creates the cycle.",
+        "Remove or guard the import of `{to}` inside `{from}`{line_hint} — this is the closing edge of the cycle.",
         "Introduce an intermediary abstraction or interface to decouple `{from}` from `{to}`.",
         "Update `{from}` to depend on the abstraction rather than `{to}` directly.",
         "Run dependency analysis to confirm the cycle is resolved.",
@@ -80,7 +80,9 @@ def _render_steps(
     from_target: str,
     to_target: str,
     use_staged: bool = False,
+    line_number: int | None = None,
 ) -> List[str]:
+    line_hint = f" at line {line_number}" if line_number else ""
     template_source = _STAGED_STEP_TEMPLATES if use_staged else _STEP_TEMPLATES
     templates = template_source.get(
         action,
@@ -90,7 +92,7 @@ def _render_steps(
         ],
     )
     return [
-        t.format(from_=from_target, **{"from": from_target, "to": to_target})
+        t.format(from_=from_target, **{"from": from_target, "to": to_target, "line_hint": line_hint})
         for t in templates
     ]
 
@@ -201,6 +203,7 @@ class PlanGenerator:
                     "why": explain["why"],
                     "impact_if_ignored": explain["impact_if_ignored"],
                     "alternative": explain["alternative"],
+                    "line_number": change.get("line_number"),
                 }
             )
 
@@ -276,7 +279,8 @@ class PlanGenerator:
         execution_plan: List[str] = []
         for idx, item in enumerate(paired_sorted, start=1):
             steps = _render_steps(
-                item["action"], item["from"], item["to"], use_staged=use_staged
+                item["action"], item["from"], item["to"], use_staged=use_staged,
+                line_number=item.get("line_number"),
             )
             execution_plan.append(
                 f"[Change {idx} — {item['action']} | risk: {item['risk']}]"

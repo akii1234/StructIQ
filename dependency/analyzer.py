@@ -58,10 +58,19 @@ def analyze_graph(graph: dict, run_id: str) -> dict:
     for k in list(rev_adj.keys()):
         rev_adj[k] = sorted(set(rev_adj[k]))
 
+    # Build edge line lookup: (source, target) -> line_number
+    edge_line_lookup: dict[tuple[str, str], int | None] = {}
+    for e in raw_edges:
+        if isinstance(e, dict):
+            src = str(e.get("source") or "")
+            tgt = str(e.get("target") or "")
+            if src and tgt:
+                edge_line_lookup[(src, tgt)] = e.get("line_number")
+
     # Cycle detection — iterative 3-color DFS.
     colors: dict[str, int] = {n: 0 for n in nodes}  # 0=unvisited, 1=in-stack, 2=done
     back_edges: set[tuple[str, str]] = set()
-    cycles: list[list[str]] = []
+    cycles: list[dict] = []
     seen_cycle_members: set[frozenset[str]] = set()
 
     for start in sorted(nodes):
@@ -99,7 +108,15 @@ def analyze_graph(graph: dict, run_id: str) -> dict:
                         and len(cycles) < 100
                     ):
                         seen_cycle_members.add(cycle_dedupe)
-                        cycles.append(cycle_members + [nei])
+                        closing_line = edge_line_lookup.get((node, nei))
+                        cycles.append({
+                            "files": cycle_members + [nei],
+                            "closing_edge": {
+                                "source": node,
+                                "target": nei,
+                                "line_number": closing_line,
+                            },
+                        })
             else:
                 stack.pop()
                 colors[node] = 2

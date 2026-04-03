@@ -63,8 +63,13 @@ def generate_review(
     issues: Dict[str, List[dict]] = {"critical": [], "high": [], "medium": [], "low": []}
 
     for cycle in cycles:
-        if isinstance(cycle, list) and cycle:
+        if isinstance(cycle, dict):
+            names = [str(c) for c in (cycle.get("files") or [])]
+        elif isinstance(cycle, list):
             names = [str(c) for c in cycle]
+        else:
+            names = []
+        if names:
             issues["critical"].append({
                 "issue": f"Circular dependency: {' → '.join(names)}",
                 "location": names[0],

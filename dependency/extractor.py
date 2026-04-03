@@ -81,7 +81,7 @@ def extract_imports(
             r"importlib\.import_module\s*\(\s*(?P<arg>[^)]+?)\s*\)"
         )
 
-        for line in lines:
+        for line_idx, line in enumerate(lines, 1):
             if _is_comment_or_blank(line):
                 continue
             raw_import = line.strip()
@@ -99,6 +99,7 @@ def extract_imports(
                                 "import_target": arg,
                                 "import_kind": "dynamic",
                                 "language": language,
+                                "line_number": line_idx,
                             }
                         )
                         continue
@@ -113,6 +114,7 @@ def extract_imports(
                         "import_target": import_target,
                         "import_kind": _python_import_kind(file_path, import_target),
                         "language": language,
+                        "line_number": line_idx,
                     }
                 )
                 continue
@@ -127,6 +129,7 @@ def extract_imports(
                         "import_target": import_target,
                         "import_kind": _python_import_kind(file_path, import_target),
                         "language": language,
+                        "line_number": line_idx,
                     }
                 )
                 continue
@@ -143,7 +146,7 @@ def extract_imports(
         # Pattern 3: export ... from '...'
         export_from_pat = re.compile(r"export\s+.*?\s+from\s+['\"](.+?)['\"]")
 
-        for line in lines:
+        for line_idx, line in enumerate(lines, 1):
             if _is_comment_or_blank(line):
                 continue
             raw_import = line.strip()
@@ -158,6 +161,7 @@ def extract_imports(
                         "import_target": import_target,
                         "import_kind": "dynamic",
                         "language": language,
+                        "line_number": line_idx,
                     }
                 )
                 continue
@@ -172,6 +176,7 @@ def extract_imports(
                         "import_target": import_target,
                         "import_kind": _js_ts_import_kind(import_target),
                         "language": language,
+                        "line_number": line_idx,
                     }
                 )
                 continue
@@ -186,6 +191,7 @@ def extract_imports(
                         "import_target": import_target,
                         "import_kind": _js_ts_import_kind(import_target),
                         "language": language,
+                        "line_number": line_idx,
                     }
                 )
                 continue
@@ -200,6 +206,7 @@ def extract_imports(
                         "import_target": import_target,
                         "import_kind": _js_ts_import_kind(import_target),
                         "language": language,
+                        "line_number": line_idx,
                     }
                 )
                 continue
@@ -209,7 +216,7 @@ def extract_imports(
     if lang == "java":
         import_pat = re.compile(r"^\s*import\s+(?:static\s+)?([\w.]+)(?:\.\*)?;\s*$")
 
-        for line in lines:
+        for line_idx, line in enumerate(lines, 1):
             if _is_comment_or_blank(line):
                 continue
             raw_import = line.strip()
@@ -224,6 +231,7 @@ def extract_imports(
                     "import_target": import_target,
                     "import_kind": _java_import_kind(file_path, import_target),
                     "language": language,
+                    "line_number": line_idx,
                 }
             )
         return out
@@ -232,7 +240,7 @@ def extract_imports(
         in_import_block = False
         single_pat = re.compile(r'^\s*import\s+"(.+?)"\s*$')
 
-        for line in lines:
+        for line_idx, line in enumerate(lines, 1):
             if _is_comment_or_blank(line):
                 continue
             raw_import = line.strip()
@@ -252,6 +260,7 @@ def extract_imports(
                                 "import_target": import_target,
                                 "import_kind": _go_import_kind(import_target),
                                 "language": language,
+                                "line_number": line_idx,
                             }
                         )
                 continue
@@ -271,6 +280,7 @@ def extract_imports(
                     "import_target": import_target,
                     "import_kind": _go_import_kind(import_target),
                     "language": language,
+                    "line_number": line_idx,
                 }
             )
 
