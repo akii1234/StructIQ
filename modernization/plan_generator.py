@@ -296,9 +296,33 @@ class PlanGenerator:
             for step_num, step in enumerate(steps, start=1):
                 execution_plan.append(f"  {idx}.{step_num}. {step}")
 
-        return {
+        result: Dict[str, Any] = {
             "execution_plan": execution_plan,
             "plan_summary": plan_summary,
             "sequencing_notes": sequencing_notes,
             "plan_mode": "staged" if use_staged else "direct",
         }
+
+        # Task 10: First action precision (optional LLM enrichment)
+        if enable_llm and self._llm_client is not None and paired_sorted:
+            try:
+                from StructIQ.llm.trust.first_action import generate_first_action
+                top_step = paired_sorted[0]
+                top_step_desc = (
+                    execution_plan[1]
+                    if len(execution_plan) > 1 and execution_plan[1].startswith("  1.")
+                    else ""
+                )
+                file_summaries = context.get("file_summaries") or {}
+                first_action = generate_first_action(
+                    top_step=top_step,
+                    step_description=top_step_desc,
+                    affected_file_summaries=file_summaries,
+                    llm_client=self._llm_client,
+                )
+                if first_action:
+                    result["first_action_precise"] = first_action
+            except Exception as exc:
+                _LOGGER.warning("First action precision failed (non-fatal): %s", exc)
+
+        return result
