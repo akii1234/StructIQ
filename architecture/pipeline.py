@@ -141,6 +141,19 @@ def run_architecture_pipeline(
         if not isinstance(services, dict):
             services = {}
 
+        # Terraform infrastructure anti-patterns (non-fatal)
+        try:
+            from StructIQ.architecture.terraform_analyzer import TerraformAnalyzer
+            tf_result = TerraformAnalyzer().analyze(graph, analysis)
+            tf_anti_patterns = tf_result.get("anti_patterns") or []
+            if tf_anti_patterns:
+                anti_patterns = list(anti_patterns) + tf_anti_patterns
+                logger.info(
+                    "Phase 3: %d Terraform anti-pattern(s) detected", len(tf_anti_patterns)
+                )
+        except Exception as exc:
+            logger.warning("Phase 3: Terraform analysis failed (non-fatal): %s", exc)
+
         # Task 8: Cycle intent classification (optional LLM enrichment)
         if enable_llm and llm_client is not None:
             try:
