@@ -94,3 +94,44 @@ def test_plan_confidence_is_float() -> None:
 
     assert isinstance(task["confidence"], float)
     assert 0.0 <= task["confidence"] <= 1.0
+
+
+def test_planner_uses_enriched_why_when_present():
+    """If anti-pattern has enriched_why, planner must use it instead of template."""
+    from StructIQ.modernization.planner import ModernizationPlanner
+    insights = {
+        "anti_patterns": [{
+            "type": "high_coupling",
+            "file": "session_manager.py",
+            "severity": "high",
+            "afferent_coupling": 7,
+            "efferent_coupling": 0,
+            "enriched_why": "Seven modules depend on session_manager.py, making any interface change a cascade.",
+            "enriched_impact": "Rotating session storage requires synchronized changes across 7 files.",
+        }]
+    }
+    result = ModernizationPlanner().plan(insights)
+    tasks = result["tasks"]
+    assert tasks, "Expected at least one task"
+    task = tasks[0]
+    assert task["why"] == "Seven modules depend on session_manager.py, making any interface change a cascade."
+    assert task["impact_if_ignored"] == "Rotating session storage requires synchronized changes across 7 files."
+
+
+def test_planner_falls_back_to_template_without_enriched_fields():
+    """Without enriched fields, planner still generates template-based text."""
+    from StructIQ.modernization.planner import ModernizationPlanner
+    insights = {
+        "anti_patterns": [{
+            "type": "high_coupling",
+            "file": "session_manager.py",
+            "severity": "high",
+            "afferent_coupling": 7,
+            "efferent_coupling": 0,
+        }]
+    }
+    result = ModernizationPlanner().plan(insights)
+    tasks = result["tasks"]
+    assert tasks
+    assert "session_manager.py" in tasks[0]["why"]
+    assert "7" in tasks[0]["impact_if_ignored"]

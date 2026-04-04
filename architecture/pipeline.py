@@ -106,27 +106,50 @@ def run_architecture_pipeline(
         services = ClusteringEngine().cluster(processed_graph)
 
         logger.info("Phase 3: detecting architectural anti-patterns")
-        arch_result = ArchitectureAnalyzer().analyze(analysis)
+        content_scan = read_json_file(str(Path(run_dir) / "content_scan.json"), {})
+        from StructIQ.architecture.detectors.concentration_detector import (
+            ConcentrationRiskDetector,
+        )
+        from StructIQ.architecture.detectors.hardcoded_config_detector import (
+            HardcodedConfigDetector,
+        )
+        from StructIQ.architecture.detectors.hub_detector import HubFileDetector
+        from StructIQ.architecture.detectors.large_file_detector import LargeFileDetector
+        from StructIQ.architecture.detectors.large_function_detector import (
+            LargeFunctionDetector,
+        )
+        from StructIQ.architecture.detectors.mega_module_detector import MegaModuleDetector
+        from StructIQ.architecture.detectors.no_abstraction_detector import (
+            NoAbstractionLayerDetector,
+        )
+        from StructIQ.architecture.detectors.orphan_detector import OrphanFileDetector
+        from StructIQ.architecture.detectors.test_gap_detector import TestGapDetector
+        from StructIQ.architecture.detectors.too_many_functions_detector import (
+            TooManyFunctionsDetector,
+        )
+        from StructIQ.architecture.detectors.unstable_dep_detector import (
+            UnstableDependencyDetector,
+        )
 
-        recommendations: list[dict] = []
-        if enable_llm:
-            logger.info("Phase 3: generating recommendations via LLM")
-            try:
-                rec_input = {
-                    "clusters": services,
-                    "anti_patterns": arch_result.get("anti_patterns", []),
-                    "entry_points": analysis.get("entry_points", []),
-                }
-                rec_result = RecommendationEngine(llm_client=llm_client).generate(rec_input)
-                recommendations = _normalize_recommendations(
-                    rec_result.get("recommendations")
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Phase 3: recommendation generation failed (non-fatal): %s", exc
-                )
-        else:
-            logger.info("Phase 3: LLM disabled — skipping recommendations")
+        extra = [
+            OrphanFileDetector(),
+            HubFileDetector(),
+            ConcentrationRiskDetector(),
+            UnstableDependencyDetector(),
+            LargeFileDetector(),
+            LargeFunctionDetector(),
+            TooManyFunctionsDetector(),
+            TestGapDetector(),
+            MegaModuleDetector(),
+            HardcodedConfigDetector(),
+            NoAbstractionLayerDetector(),
+        ]
+        arch_result = ArchitectureAnalyzer().analyze(
+            analysis,
+            graph=graph,
+            content_scan=content_scan,
+            extra_detectors=extra,
+        )
 
         generated_at = (
             datetime.now(timezone.utc)
@@ -144,7 +167,9 @@ def run_architecture_pipeline(
         # Terraform infrastructure anti-patterns (non-fatal)
         try:
             from StructIQ.architecture.terraform_analyzer import TerraformAnalyzer
-            tf_result = TerraformAnalyzer().analyze(graph, analysis)
+
+            tf_scan = read_json_file(str(Path(run_dir) / "terraform_scan.json"), {})
+            tf_result = TerraformAnalyzer().analyze(graph, analysis, tf_scan=tf_scan or None)
             tf_anti_patterns = tf_result.get("anti_patterns") or []
             if tf_anti_patterns:
                 anti_patterns = list(anti_patterns) + tf_anti_patterns
@@ -153,6 +178,26 @@ def run_architecture_pipeline(
                 )
         except Exception as exc:
             logger.warning("Phase 3: Terraform analysis failed (non-fatal): %s", exc)
+
+        recommendations: list[dict] = []
+        if enable_llm:
+            logger.info("Phase 3: generating recommendations via LLM")
+            try:
+                rec_input = {
+                    "clusters": services,
+                    "anti_patterns": anti_patterns,
+                    "entry_points": analysis.get("entry_points", []),
+                }
+                rec_result = RecommendationEngine(llm_client=llm_client).generate(rec_input)
+                recommendations = _normalize_recommendations(
+                    rec_result.get("recommendations")
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Phase 3: recommendation generation failed (non-fatal): %s", exc
+                )
+        else:
+            logger.info("Phase 3: LLM disabled — skipping recommendations")
 
         # Task 8: Cycle intent classification (optional LLM enrichment)
         if enable_llm and llm_client is not None:
@@ -205,13 +250,21 @@ def run_architecture_pipeline(
             except Exception as exc:
                 logger.warning("Anti-pattern confirmation failed (non-fatal): %s", exc)
 
+        from StructIQ.architecture.domain_aggregator import DomainAggregator
+
+        domain_result = DomainAggregator().aggregate(anti_patterns)
+
+        arch_for_summary = {**arch_result, "anti_patterns": anti_patterns}
         insights = {
             "run_id": run_id,
             "generated_at": generated_at,
             "services": services,
             "anti_patterns": anti_patterns,
             "recommendations": recommendations,
-            "system_summary": _build_system_summary(services, arch_result, analysis),
+            "system_summary": _build_system_summary(services, arch_for_summary, analysis),
+            "domain_scores": domain_result["domain_scores"],
+            "overall_score": domain_result["overall_score"],
+            "overall_grade": domain_result["overall_grade"],
         }
 
         insights_path = str(Path(run_dir) / "architecture_insights.json")

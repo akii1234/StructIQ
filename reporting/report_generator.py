@@ -216,7 +216,7 @@ def generate_report_html(
     a:hover {{ color:#f1f5f9; }}
     .wrap {{ max-width:1200px; margin:0 auto; padding:24px; }}
     section {{ margin:48px 0; }}
-    .cards {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }}
+    .cards {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }}
     .card {{ background:#1e293b; border:1px solid #334155; border-radius:12px; padding:14px; }}
     table th, table td {{ border-bottom:1px solid #334155; padding:8px; text-align:left; font-size:13px; }}
     .surface {{ background:#1e293b; border:1px solid #334155; border-radius:12px; padding:12px; }}
@@ -585,10 +585,60 @@ class ReportGenerator:
         output = read_json_file(str(run_path / "output.json"), {})
         dep_graph = read_json_file(str(run_path / "dependency_graph.json"), {})
         dep_analysis = read_json_file(str(run_path / "dependency_analysis.json"), {})
-        arch = read_json_file(str(run_path / "architecture_insights.json"), {})
+        _enriched_path = run_path / "enriched_insights.json"
+        arch = (
+            read_json_file(str(_enriched_path), {})
+            if _enriched_path.exists()
+            else read_json_file(str(run_path / "architecture_insights.json"), {})
+        )
         plan = read_json_file(str(run_path / "modernization_plan.json"), {})
+        intel = read_json_file(str(run_path / "intelligence_report.json"), {})
+        intel_narrative = intel.get("narrative") or {}
+        intel_digest = intel.get("digest") or {}
 
         anti_patterns = arch.get("anti_patterns") or []
+
+        def _collapse_test_gaps_for_catalog(aps: list) -> list:
+            """Replace many test_gap rows with one summary for the catalog (display only)."""
+            if not isinstance(aps, list):
+                return aps
+            gaps = [
+                ap
+                for ap in aps
+                if isinstance(ap, dict) and ap.get("type") == "test_gap"
+            ]
+            rest = [
+                ap
+                for ap in aps
+                if not (isinstance(ap, dict) and ap.get("type") == "test_gap")
+            ]
+            if len(gaps) < 3:
+                return list(aps)
+            sample_paths = [g.get("file", "") for g in gaps[:5] if g.get("file")]
+            sample_bits = [Path(str(p)).name for p in sample_paths if p]
+            desc = (
+                f"{len(gaps)} source files have no matching test file — "
+                "migration and refactors without tests are high-risk. "
+                "Prioritize a minimal test harness or incremental coverage."
+            )
+            if sample_bits:
+                desc += " Examples: " + ", ".join(sample_bits) + "."
+            summary: dict = {
+                "type": "test_gap",
+                "category": "maintainability",
+                "severity": "medium",
+                "module": f"Summary ({len(gaps)} files without tests)",
+                "description": desc,
+                "metrics": {
+                    "collapsed_file_count": len(gaps),
+                    "sample_files": sample_paths,
+                },
+                "effort": "high",
+            }
+            return rest + [summary]
+
+        anti_patterns_catalog = _collapse_test_gaps_for_catalog(anti_patterns)
+
         anti_pattern_files = {
             str(ap.get("file"))
             for ap in anti_patterns
@@ -668,40 +718,259 @@ class ReportGenerator:
                 )
             return "".join(rows) or "<tr><td colspan='2' style='color:#94a3b8'>No data</td></tr>"
 
-        def anti_pattern_cards() -> str:
-            if not anti_patterns:
+        domain_scores = arch.get("domain_scores") or {}
+        overall_score = arch.get("overall_score")
+        overall_grade = arch.get("overall_grade")
+
+        def render_domain_dashboard() -> str:
+            order = [
+                "structural",
+                "complexity",
+                "maintainability",
+                "security",
+                "migration",
+            ]
+            labels = {
+                "structural": "STRUCTURAL",
+                "complexity": "COMPLEXITY",
+                "maintainability": "MAINTAINABILITY",
+                "security": "SECURITY",
+                "migration": "MIGRATION",
+            }
+            cards_html: list[str] = []
+            for dom in order:
+                data = domain_scores.get(dom) if isinstance(domain_scores, dict) else None
+                if isinstance(data, dict):
+                    sc = data.get("score", "—")
+                    gr = data.get("grade", "—")
+                    fc = data.get("finding_count", 0)
+                else:
+                    sc, gr, fc = "—", "—", 0
+                cards_html.append(
+                    "<div class='card'>"
+                    f"<div style='color:#94a3b8;font-size:11px;letter-spacing:0.06em'>{labels[dom]}</div>"
+                    f"<div style='font-size:22px;font-weight:700;margin-top:6px'>{esc(sc)} / {esc(gr)}</div>"
+                    f"<div style='color:#64748b;font-size:12px;margin-top:4px'>{esc(fc)} findings</div>"
+                    "</div>"
+                )
+            overall_line = ""
+            if overall_score is not None and str(overall_score).strip() != "":
+                overall_line = (
+                    "<div style='margin-top:16px;font-size:18px;font-weight:700;color:#e2e8f0'>"
+                    f"Overall health: {esc(overall_score)} / {esc(overall_grade or '')}</div>"
+                )
+            else:
+                sysd = intel_digest.get("system") if isinstance(intel_digest, dict) else None
+                if isinstance(sysd, dict) and sysd.get("overall_score") is not None:
+                    overall_line = (
+                        "<div style='margin-top:16px;font-size:18px;font-weight:700;color:#e2e8f0'>"
+                        f"Overall health: {esc(sysd.get('overall_score'))} / "
+                        f"{esc(sysd.get('overall_grade') or '')}</div>"
+                    )
+            return (
+                "<div style='display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px'>"
+                + "".join(cards_html)
+                + "</div>"
+                + overall_line
+            )
+
+        def render_system_intelligence() -> str:
+            parts: list[str] = []
+            sn = str(intel_narrative.get("system_narrative") or "").strip()
+            if sn:
+                parts.append(
+                    "<h3 style='margin-top:0;color:#a78bfa'>System narrative</h3>"
+                    "<div style='color:#e2e8f0;line-height:1.7;white-space:pre-wrap'>"
+                    f"{esc(sn)}</div>"
+                )
+            og = intel_narrative.get("onboarding_guide")
+            if isinstance(og, list) and og:
+                parts.append(
+                    "<h3 style='color:#a78bfa;margin-top:1rem'>Start here as a new engineer</h3>"
+                    "<ol style='color:#cbd5e1;line-height:1.7'>"
+                )
+                for item in og:
+                    parts.append(f"<li>{esc(item)}</li>")
+                parts.append("</ol>")
+            dn = intel_narrative.get("domain_narratives")
+            if isinstance(dn, dict) and dn:
+                parts.append(
+                    "<h3 style='color:#a78bfa;margin-top:1rem'>Domain narratives</h3>"
+                )
+                for k, v in sorted(dn.items()):
+                    if not v:
+                        continue
+                    parts.append(
+                        f"<p style='color:#cbd5e1'><strong>{esc(k)}</strong>: {esc(v)}</p>"
+                    )
+            if not parts:
+                sysd = intel_digest.get("system") if isinstance(intel_digest, dict) else {}
+                eps = list(dep_analysis.get("entry_points") or []) or list(
+                    (sysd.get("entry_points") or []) if isinstance(sysd, dict) else []
+                )
+                parts.append(
+                    "<h3 style='margin-top:0;color:#94a3b8'>System entry points</h3>"
+                )
+                if eps:
+                    parts.append("<ul style='color:#cbd5e1'>")
+                    for ep in eps[:12]:
+                        parts.append(f"<li>{esc(ep)}</li>")
+                    parts.append("</ul>")
+                else:
+                    parts.append("<p style='color:#64748b'>No entry points recorded.</p>")
+                hubs = [
+                    ap
+                    for ap in anti_patterns
+                    if isinstance(ap, dict) and ap.get("type") == "hub_file"
+                ]
+                if hubs:
+                    parts.append(
+                        "<h3 style='color:#94a3b8;margin-top:1rem'>Top hub files (structural risk)</h3>"
+                        "<ul style='color:#cbd5e1'>"
+                    )
+                    for ap in hubs[:8]:
+                        parts.append(f"<li>{esc(ap.get('file', ''))}</li>")
+                    parts.append("</ul>")
+            return "<div class='surface'>" + "".join(parts) + "</div>"
+
+        def ap_catalog_block(ap: dict) -> str:
+            ap_type = str(ap.get("type", "unknown"))
+            severity = str(ap.get("severity", ""))
+            sev_color = (
+                "#ef4444"
+                if severity == "high"
+                else "#f59e0b"
+                if severity == "medium"
+                else "#22c55e"
+            )
+            subject = ap.get("file") or ap.get("module") or ", ".join(
+                str(x) for x in (ap.get("files") or [])[:3]
+            )
+            desc = ap.get("description", "")
+            effort = ap.get("effort", "")
+            metrics = ap.get("metrics")
+            met_str = ""
+            if isinstance(metrics, dict) and metrics:
+                met_str = (
+                    "<div style='color:#64748b;font-size:11px;margin-top:4px'>"
+                    f"{esc(json.dumps(metrics)[:240])}</div>"
+                )
+            extra = ""
+            if ap_type == "high_coupling":
+                extra = (
+                    f"<div style='color:#94a3b8;font-size:12px'>"
+                    f"Afferent: {esc(ap.get('afferent_coupling', 0))} | "
+                    f"Efferent: {esc(ap.get('efferent_coupling', 0))}</div>"
+                )
+            eff_badge = ""
+            if effort:
+                eff_badge = (
+                    "<span style='background:#334155;color:#e2e8f0;padding:2px 8px;"
+                    "border-radius:999px;font-size:10px;margin-left:6px'>"
+                    f"{esc(effort)} effort</span>"
+                )
+            return (
+                "<div style='background:#0f172a;border:1px solid #334155;border-radius:8px;"
+                "padding:10px;margin-bottom:8px'>"
+                "<span style='background:#475569;color:#f1f5f9;padding:2px 8px;"
+                "border-radius:4px;font-size:11px'>"
+                f"{esc(ap_type)}</span> "
+                f"<span style='background:{sev_color};color:#0f172a;padding:2px 8px;"
+                "border-radius:999px;font-size:10px;font-weight:700'>"
+                f"{esc(severity)}</span>"
+                f"{eff_badge}"
+                f"<div style='color:#f1f5f9;font-weight:600;margin-top:6px'>{esc(subject)}</div>"
+                f"<div style='color:#cbd5e1;font-size:13px;margin-top:4px'>{esc(desc)}</div>"
+                f"{extra}{met_str}</div>"
+            )
+
+        def render_anti_pattern_catalog() -> str:
+            from StructIQ.architecture.domain_aggregator import DOMAIN_DETECTORS
+
+            if not anti_patterns_catalog:
                 return (
                     "<div style='background:#14532d;border:1px solid #22c55e;padding:12px;"
                     "border-radius:10px;color:#dcfce7'>No issues detected</div>"
                 )
-            cards = []
-            for ap in anti_patterns:
+            type_to_domain: dict[str, str] = {}
+            for dom, types in DOMAIN_DETECTORS.items():
+                for tname in types:
+                    type_to_domain[tname] = dom
+            buckets: dict[str, list] = {k: [] for k in list(DOMAIN_DETECTORS.keys()) + ["other"]}
+            for ap in anti_patterns_catalog:
                 if not isinstance(ap, dict):
                     continue
-                ap_type = str(ap.get("type", "unknown"))
-                severity = str(ap.get("severity", ""))
-                sev_color = "#ef4444" if severity == "high" else "#f59e0b" if severity == "medium" else "#22c55e"
-                subject = ap.get("file") or ap.get("module") or ", ".join(ap.get("files", [])[:3])
-                desc = ap.get("description", "")
-                extra = ""
-                if ap_type == "high_coupling":
-                    extra = (
-                        f"<div style='color:#94a3b8;font-size:12px'>"
-                        f"Afferent: {esc(ap.get('afferent_coupling', 0))} | "
-                        f"Efferent: {esc(ap.get('efferent_coupling', 0))}</div>"
-                    )
-                cards.append(
-                    "<div style='background:#1e293b;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:12px'>"
-                    f"<div><span style='background:{sev_color};color:#0f172a;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700'>{esc(ap_type)}</span> "
-                    f"<span style='color:#94a3b8;font-size:12px'>Severity: {esc(severity)}</span></div>"
-                    f"<div style='color:#f1f5f9;font-weight:600;margin-top:6px'>{esc(subject)}</div>"
-                    f"<div style='color:#cbd5e1;font-size:13px;margin-top:4px'>{esc(desc)}</div>"
-                    f"{extra}"
-                    "</div>"
+                dom = type_to_domain.get(str(ap.get("type", "")), "other")
+                buckets[dom].append(ap)
+            sev_order = {"high": 3, "medium": 2, "low": 1}
+
+            def sort_aps(lst: list) -> list:
+                return sorted(
+                    lst,
+                    key=lambda x: sev_order.get(x.get("severity", "low"), 0),
+                    reverse=True,
                 )
-            return "".join(cards)
+
+            out: list[str] = []
+            for dom in list(DOMAIN_DETECTORS.keys()) + ["other"]:
+                lst = sort_aps(buckets.get(dom, []))
+                if not lst:
+                    continue
+                title = dom.upper() if dom != "other" else "OTHER"
+                inner = "".join(ap_catalog_block(ap) for ap in lst)
+                out.append(
+                    f"<details style='margin-bottom:12px' open><summary style='cursor:pointer;color:#f1f5f9;font-weight:600'>{esc(title)} ({len(lst)})</summary><div style='margin-top:8px'>{inner}</div></details>"
+                )
+            return "".join(out) or (
+                "<div style='background:#14532d;border:1px solid #22c55e;padding:12px;"
+                "border-radius:10px;color:#dcfce7'>No issues detected</div>"
+            )
+
+        def render_migration_readiness() -> str:
+            from StructIQ.architecture.domain_aggregator import DOMAIN_DETECTORS
+
+            mig_types = set(DOMAIN_DETECTORS.get("migration", []))
+            parts: list[str] = []
+            ma = str(intel_narrative.get("migration_assessment") or "").strip()
+            if ma:
+                parts.append(
+                    "<div style='background:#422006;border:1px solid #d97706;border-radius:10px;"
+                    "padding:14px;margin-bottom:12px;color:#fed7aa;line-height:1.6'>"
+                    f"{esc(ma)}</div>"
+                )
+            mig_findings = [
+                ap
+                for ap in anti_patterns
+                if isinstance(ap, dict) and ap.get("type") in mig_types
+            ]
+            parts.append(
+                "<h3 style='color:#f1f5f9;margin-top:0'>Migration-domain findings</h3>"
+            )
+            if not mig_findings:
+                parts.append(
+                    "<p style='color:#64748b'>No migration-domain anti-patterns detected.</p>"
+                )
+            else:
+                parts.append("<ul style='list-style:none;padding:0;color:#cbd5e1'>")
+                for ap in mig_findings:
+                    subj = ap.get("file") or ap.get("module") or ", ".join(
+                        str(x) for x in (ap.get("files") or [])[:2]
+                    )
+                    parts.append(
+                        "<li style='margin-bottom:8px'><span style='color:#94a3b8'>☐</span> "
+                        f"{esc(ap.get('type', ''))}: {esc(subj)} — "
+                        f"{esc(str(ap.get('description', ''))[:160])}</li>"
+                    )
+                parts.append("</ul>")
+            return "<div class='surface'>" + "".join(parts) + "</div>"
 
         def tasks_table() -> str:
+            task_domain_map = {
+                "break_cycle": "structural",
+                "split_file": "structural",
+                "reduce_coupling": "complexity",
+                "extract_module": "maintainability",
+            }
             if not tasks:
                 return "<div style='color:#94a3b8'>No tasks</div>"
             rows = []
@@ -709,9 +978,12 @@ class ReportGenerator:
                 if not isinstance(t, dict):
                     continue
                 target = ", ".join(str(x) for x in (t.get("target") or []))
+                t_type = str(t.get("type", ""))
+                dom = task_domain_map.get(t_type, "general")
                 rows.append(
                     "<tr>"
-                    f"<td>{esc(t.get('type', ''))}</td>"
+                    f"<td>{esc(t_type)}</td>"
+                    f"<td><span style='background:#1e293b;padding:2px 8px;border-radius:4px;font-size:11px;color:#94a3b8'>{esc(dom)}</span></td>"
                     f"<td>{esc(target)}</td>"
                     f"<td>{esc(t.get('priority', ''))}</td>"
                     f"<td>{esc(t.get('confidence', ''))}</td>"
@@ -721,7 +993,7 @@ class ReportGenerator:
             return (
                 "<table style='width:100%;border-collapse:collapse'>"
                 "<thead><tr>"
-                "<th>Type</th><th>Target</th><th>Priority</th><th>Confidence</th><th>Selected Strategy</th>"
+                "<th>Type</th><th>Domain</th><th>Target</th><th>Priority</th><th>Confidence</th><th>Selected Strategy</th>"
                 "</tr></thead>"
                 f"<tbody>{''.join(rows)}</tbody></table>"
             )
@@ -783,26 +1055,29 @@ class ReportGenerator:
     a:hover {{ color:#f1f5f9; }}
     .wrap {{ max-width:1200px; margin:0 auto; padding:24px; }}
     section {{ margin:48px 0; }}
-    .cards {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }}
+    .cards {{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }}
     .card {{ background:#1e293b; border:1px solid #334155; border-radius:12px; padding:14px; }}
     table th, table td {{ border-bottom:1px solid #334155; padding:8px; text-align:left; font-size:13px; }}
     .surface {{ background:#1e293b; border:1px solid #334155; border-radius:12px; padding:12px; }}
   </style>
 </head>
 <body>
-  <nav style="position:sticky;top:0;z-index:100;background:#1e293b;border-bottom:1px solid #334155;padding:12px 24px;display:flex;gap:24px;align-items:center">
+  <nav style="position:sticky;top:0;z-index:100;background:#1e293b;border-bottom:1px solid #334155;padding:12px 24px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
     <span style="font-weight:700;color:#f1f5f9">StructIQ</span>
     <a href="#overview">Overview</a>
+    <a href="#intelligence">Intelligence</a>
+    <a href="#catalog">Catalog</a>
     <a href="#dependencies">Dependencies</a>
-    <a href="#architecture">Architecture</a>
     <a href="#plan">Plan</a>
+    <a href="#migration-readiness">Migration</a>
     <span style="margin-left:auto;color:#94a3b8;font-size:12px">Run: {esc(run_id[:8])}</span>
   </nav>
 
   <div class="wrap">
     <section id="overview">
-      <h2>Overview</h2>
-      <div class="cards">
+      <h2>System overview</h2>
+      {render_domain_dashboard()}
+      <div class="cards" style="margin-top:16px">
         <div class="card"><div style="color:#94a3b8;font-size:12px">Total files analyzed</div><div style="font-size:26px;font-weight:700">{total_files}</div></div>
         <div class="card"><div style="color:#94a3b8;font-size:12px">Services detected</div><div style="font-size:26px;font-weight:700">{services_count}</div></div>
         <div class="card"><div style="color:#94a3b8;font-size:12px">Anti-patterns found</div><div style="font-size:26px;font-weight:700">{anti_count}</div></div>
@@ -811,6 +1086,16 @@ class ReportGenerator:
       </div>
       {"<div class='surface' style='margin-top:12px;margin-bottom:4px;color:#e2e8f0;font-size:15px;line-height:1.6'>" + esc(narrative) + "</div>" if narrative else ""}
       <div class="surface" style="margin-top:12px;color:#cbd5e1">{esc(system_summary or "No system summary available.")}</div>
+    </section>
+
+    <section id="intelligence">
+      <h2>System intelligence</h2>
+      {render_system_intelligence()}
+    </section>
+
+    <section id="catalog">
+      <h2>Anti-pattern catalog</h2>
+      {render_anti_pattern_catalog()}
     </section>
 
     <section id="dependencies">
@@ -829,13 +1114,8 @@ class ReportGenerator:
       </div>
     </section>
 
-    <section id="architecture">
-      <h2>Architecture</h2>
-      {anti_pattern_cards()}
-    </section>
-
     <section id="plan">
-      <h2>Plan</h2>
+      <h2>Modernization plan</h2>
       <div style="display:flex;gap:8px;margin-bottom:12px">
         <span style="padding:4px 10px;border-radius:999px;background:{decision_color};color:#0f172a;font-weight:700">{esc(decision_label)}</span>
         <span style="padding:4px 10px;border-radius:999px;background:#3b82f6;color:#0f172a;font-weight:700">{esc(plan_mode)}</span>
@@ -845,6 +1125,11 @@ class ReportGenerator:
       {("<div class='surface' style='margin-bottom:12px'><strong style='color:#f1f5f9'>Dominated tasks (removed as redundant):</strong>" + "".join(f"<div style='color:#94a3b8;font-size:13px;margin-top:4px'>{esc(t.get('type',''))} — {esc(', '.join(str(x) for x in (t.get('target') or [])))} <span style='color:#475569'>({esc(t.get('dominated_by',''))})</span></div>" for t in dominated_tasks if isinstance(t, dict)) + "</div>") if decision == "no_action_required" and dominated_tasks else ""}
       {"<div class='surface'>" + tasks_table() + "</div>" if decision != "no_action_required" else ""}
       {"<div class='surface' style='margin-top:12px'>" + render_execution_plan() + "</div>" if decision != "no_action_required" else ""}
+    </section>
+
+    <section id="migration-readiness">
+      <h2>Migration readiness</h2>
+      {render_migration_readiness()}
     </section>
   </div>
 </body>

@@ -42,6 +42,26 @@ def run_dependency_pipeline(
             graph["stats"]["total_edges"],
         )
 
+        # Terraform resource scanning for security and structural analysis (non-fatal)
+        try:
+            from StructIQ.dependency.terraform_resource_scanner import TerraformResourceScanner
+
+            tf_files = [
+                str(f) for f in (phase1_output.get("files") or [])
+                if str(f).endswith(".tf")
+            ]
+            if tf_files:
+                tf_scan = TerraformResourceScanner().scan(tf_files)
+                write_json_output(tf_scan, str(Path(run_dir) / "terraform_scan.json"))
+                logger.info(
+                    "Phase 2: terraform scan written — %d resource records",
+                    len(tf_scan.get("resources") or []),
+                )
+        except Exception as _tf_exc:
+            logger.warning(
+                "Phase 2: terraform resource scan failed (non-fatal): %s", _tf_exc
+            )
+
         analysis = analyze_graph(graph, run_id)
 
         analysis_path = str(Path(run_dir) / "dependency_analysis.json")

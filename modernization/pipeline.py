@@ -50,6 +50,23 @@ def run_modernization_pipeline(
             )
         total_nodes = len((graph.get("nodes") or []))
 
+        if enable_llm and llm_client is not None:
+            try:
+                from StructIQ.llm.trust.finding_enricher import enrich_findings
+
+                enriched_aps = enrich_findings(
+                    insights.get("anti_patterns") or [], graph, llm_client
+                )
+                insights = {**insights, "anti_patterns": enriched_aps}
+                enriched_path = str(Path(run_dir) / "enriched_insights.json")
+                write_json_output(dict(insights), enriched_path)
+                logger.info(
+                    "Phase 4: enriched %d anti-pattern findings",
+                    len(enriched_aps),
+                )
+            except Exception as _enr_exc:
+                logger.warning("Finding enrichment failed (non-fatal): %s", _enr_exc)
+
         logger.info("Phase 4: generating modernization tasks for run %s", run_id)
         tasks_result = ModernizationPlanner().plan(insights)
 

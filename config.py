@@ -51,6 +51,7 @@ class Settings:
     # ~8000 characters ≈ ~2000 tokens (assuming ~4 chars/token)
     # This balances context richness with LLM cost and context limits
     max_content_length: int = int(os.getenv("MAX_CONTENT_LENGTH", "8000"))
+    large_file_threshold: int = int(os.getenv("LARGE_FILE_THRESHOLD", "500"))
 
 
 settings = Settings()

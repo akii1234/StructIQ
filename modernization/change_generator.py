@@ -151,19 +151,49 @@ class ChangeGenerator:
             elif task_type == "reduce_coupling" and target:
                 file_path = target[0]
                 p = Path(file_path)
-                utility_target = str(p.parent / f"{p.stem}_utils{p.suffix or '.py'}")
-                changes.append(
-                    {
-                        "action": "extract_utility",
-                        "from": file_path,
-                        "to": utility_target,
-                        "reason": f"Extract shared dependencies to reduce coupling: {reason}",
-                        "task_type": task_type,
-                        "why": why,
-                        "impact_if_ignored": impact_if_ignored,
-                        "alternative": alternative,
-                    }
-                )
+                try:
+                    aff = int(float(task.get("afferent_coupling", 0) or 0))
+                except (TypeError, ValueError):
+                    aff = 0
+                try:
+                    ce = int(float(task.get("efferent_coupling", 0) or 0))
+                except (TypeError, ValueError):
+                    ce = 0
+                # High efferent (Ce): extract shared imports into a utility module.
+                # High afferent with Ce=0: hub / fan-in — introduce a narrow facade or interface.
+                if ce > 0:
+                    utility_target = str(p.parent / f"{p.stem}_utils{p.suffix or '.py'}")
+                    changes.append(
+                        {
+                            "action": "extract_utility",
+                            "from": file_path,
+                            "to": utility_target,
+                            "reason": f"Extract shared dependencies to reduce coupling: {reason}",
+                            "task_type": task_type,
+                            "why": why,
+                            "impact_if_ignored": impact_if_ignored,
+                            "alternative": alternative,
+                        }
+                    )
+                else:
+                    facade_target = str(
+                        p.parent / f"{p.stem}_facade{p.suffix or '.py'}"
+                    )
+                    changes.append(
+                        {
+                            "action": "reduce_fan_in",
+                            "from": file_path,
+                            "to": facade_target,
+                            "reason": (
+                                f"Reduce inbound coupling on {file_path} via abstraction: "
+                                f"{reason}"
+                            ),
+                            "task_type": task_type,
+                            "why": why,
+                            "impact_if_ignored": impact_if_ignored,
+                            "alternative": alternative,
+                        }
+                    )
 
             elif task_type == "extract_module" and target:
                 module_name = target[0]

@@ -321,6 +321,14 @@ class ModernizationPlanner:
             else:
                 template = base_template
 
+            # Prefer LLM-enriched text over templates when present.
+            if ap.get("enriched_why"):
+                template = dict(template)
+                template["why"] = str(ap["enriched_why"])
+            if ap.get("enriched_impact"):
+                template = dict(template)
+                template["impact_if_ignored"] = str(ap["enriched_impact"])
+
             strategies = STRATEGY_MAP.get(ap_type) or []
             eval_ctx = {
                 "centrality": centrality,
@@ -366,6 +374,8 @@ class ModernizationPlanner:
                     "strategy_reason": strategy_reason,
                     "alternatives": strategy_alternatives,
                     "line_number": (ap.get("closing_edge") or {}).get("line_number"),
+                    "afferent_coupling": ap.get("afferent_coupling"),
+                    "efferent_coupling": ap.get("efferent_coupling"),
                 }
             )
 

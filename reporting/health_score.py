@@ -8,6 +8,21 @@ def compute_health_score(
     architecture_insights: dict,
     phase1_output: dict,
 ) -> dict:
+    overall = architecture_insights.get("overall_score")
+    if isinstance(overall, (int, float)):
+        score = max(0, min(100, int(round(float(overall)))))
+        # Use the grade already computed by domain_aggregator to guarantee consistency.
+        # Recomputing with a local _score_to_grade risks threshold divergence.
+        grade = architecture_insights.get("overall_grade") or _score_to_grade(score)
+        return {
+            "score": score,
+            "grade": grade,
+            "components": {
+                "source": "domain_aggregator",
+                "overall_score": overall,
+            },
+        }
+
     total_files = max(len(phase1_output.get("files") or []), 1)
 
     cycles = dependency_analysis.get("cycles") or []
@@ -42,6 +57,9 @@ def compute_health_score(
 
 
 def _score_to_grade(score: int) -> str:
+    # Used only by the legacy (no domain_aggregator) fallback path.
+    # When domain_aggregator data is present, overall_grade is taken directly
+    # from architecture_insights to guarantee consistency.
     if score >= 80: return "A"
     if score >= 65: return "B"
     if score >= 50: return "C"

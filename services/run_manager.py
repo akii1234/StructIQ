@@ -312,6 +312,23 @@ class RunManager:
                 run_id=run_id,
             )
 
+            phase1_output = read_json_file(run_state["output_path"], {})
+            try:
+                from StructIQ.scanner.content_scanner import ContentScanner
+
+                run_dir_path = Path(run_state["run_dir"])
+                content_scan = ContentScanner().scan_project(
+                    phase1_output.get("classified_files", [])
+                )
+                write_json_output(
+                    content_scan, str(run_dir_path / "content_scan.json")
+                )
+            except Exception as exc:
+                self.logger.warning("ContentScanner failed (non-fatal): %s", exc)
+                write_json_output(
+                    {}, str(Path(run_state["run_dir"]) / "content_scan.json")
+                )
+
             with self._lock:
                 self._runs[run_id]["status"] = "phase2_running"
             self._write_snapshot(run_id)
@@ -449,6 +466,48 @@ class RunManager:
                     self._runs[run_id]["llm_stats"] = existing_stats
             except Exception:
                 pass
+
+            # Phase 4.5 — Intelligence narrative (LLM optional, non-fatal)
+            try:
+                from StructIQ.intelligence.digest_builder import DigestBuilder
+                from StructIQ.intelligence.narrative_generator import NarrativeGenerator
+
+                _phase1 = read_json_file(run_state["output_path"], {})
+                _snap = read_json_file(run_state["snapshot_path"], {})
+                _graph_path = _snap.get(
+                    "dependency_graph_path",
+                    str(DATA_DIR / run_id / "dependency_graph.json"),
+                )
+                _graph = read_json_file(_graph_path, {})
+                _analysis = read_json_file(
+                    str(DATA_DIR / run_id / "dependency_analysis.json"), {}
+                )
+                _insights = read_json_file(
+                    str(DATA_DIR / run_id / "architecture_insights.json"), {}
+                )
+                _plan = read_json_file(
+                    str(DATA_DIR / run_id / "modernization_plan.json"), {}
+                )
+
+                digest = DigestBuilder().build(
+                    _phase1, _graph, _analysis, _insights, _plan
+                )
+                narrative = NarrativeGenerator(
+                    llm_client if run_enable_llm else None
+                ).generate(digest)
+
+                write_json_output(
+                    {
+                        "run_id": run_id,
+                        "digest": digest,
+                        "narrative": narrative,
+                    },
+                    str(Path(run_state["run_dir"]) / "intelligence_report.json"),
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "Phase 4.5 intelligence layer failed (non-fatal): %s", exc
+                )
 
             cache_manager.persist()
             with self._lock:

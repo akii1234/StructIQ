@@ -83,7 +83,7 @@ def test_change_generator_split_file() -> None:
     assert change["to"].endswith("_core.py")
 
 
-def test_change_generator_reduce_coupling() -> None:
+def test_change_generator_reduce_coupling_extracts_utils_when_efferent_positive() -> None:
     tasks_result = {
         "tasks": [
             {
@@ -93,6 +93,8 @@ def test_change_generator_reduce_coupling() -> None:
                 "why": "Reduce shared dependencies.",
                 "impact_if_ignored": "Coupling stays high.",
                 "alternative": "Delay refactor.",
+                "afferent_coupling": 2,
+                "efferent_coupling": 5,
             }
         ]
     }
@@ -103,6 +105,30 @@ def test_change_generator_reduce_coupling() -> None:
     assert change["action"] == "extract_utility"
     assert change["from"] == "src/fat.py"
     assert change["to"].endswith("utils.py")
+
+
+def test_change_generator_reduce_coupling_fan_in_uses_facade_when_no_efferent() -> None:
+    tasks_result = {
+        "tasks": [
+            {
+                "type": "reduce_coupling",
+                "target": ["src/session_manager.py"],
+                "reason": "high_coupling",
+                "why": "Hub file.",
+                "impact_if_ignored": "Risk.",
+                "alternative": "Defer.",
+                "afferent_coupling": 7,
+                "efferent_coupling": 0,
+            }
+        ]
+    }
+
+    result = ChangeGenerator().generate(tasks_result)
+    change = result["changes"][0]
+
+    assert change["action"] == "reduce_fan_in"
+    assert change["from"] == "src/session_manager.py"
+    assert change["to"].endswith("_facade.py")
 
 
 def test_change_generator_extract_module() -> None:

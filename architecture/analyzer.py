@@ -244,25 +244,38 @@ class ArchitectureAnalyzer:
                 )
         return anti_patterns
 
-    def analyze(self, analysis: dict) -> dict:
+    def analyze(
+        self,
+        analysis: dict,
+        graph: dict | None = None,
+        content_scan: dict | None = None,
+        extra_detectors: list | None = None,
+    ) -> dict:
         """Aggregate all anti-pattern detections into a single result."""
         if not isinstance(analysis, dict):
             return {"anti_patterns": []}
 
-        anti_patterns: List[dict] = []
-        anti_patterns.extend(self.detect_cycles(analysis))
-        
-        god_file_results = self.detect_god_files(analysis)
-        god_file_paths: set[str] = {ap["file"] for ap in god_file_results if "file" in ap}
-        
-        high_coupling_results = [
-            ap for ap in self.detect_high_coupling(analysis)
-            if ap.get("file") not in god_file_paths
-        ]
-        
-        anti_patterns.extend(high_coupling_results)
-        anti_patterns.extend(god_file_results)
-        anti_patterns.extend(self.detect_weak_boundaries(analysis))
+        g = graph if isinstance(graph, dict) else {}
+        cs = content_scan if isinstance(content_scan, dict) else {}
+
+        from StructIQ.architecture.detectors.boundary_detector import WeakBoundaryDetector
+        from StructIQ.architecture.detectors.coupling_detector import HighCouplingDetector
+        from StructIQ.architecture.detectors.cycle_detector import CycleDetector
+        from StructIQ.architecture.detectors.god_file_detector import GodFileDetector
+        from StructIQ.architecture.detectors.registry import DetectorRegistry
+
+        registry = DetectorRegistry()
+        # Order matches legacy analyze(): cycles, high_coupling (excluding gods), god_file, weak_boundary
+        registry.register(CycleDetector())
+        registry.register(HighCouplingDetector())
+        registry.register(GodFileDetector())
+        registry.register(WeakBoundaryDetector())
+        for det in extra_detectors or []:
+            registry.register(det)
+
+        anti_patterns: List[dict] = list(
+            registry.run_all(g, analysis, cs)
+        )
 
         # Deterministic ordering by type then file (if present).
         def _sort_key(item: dict) -> Any:

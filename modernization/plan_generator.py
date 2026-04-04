@@ -41,6 +41,13 @@ _STEP_TEMPLATES: Dict[str, List[str]] = {
         "Update all references to moved files throughout the codebase.",
         "Validate module boundaries hold and no new cycles are introduced.",
     ],
+    "reduce_fan_in": [
+        "List the minimal API surface of `{from}` that other modules actually use.",
+        "Introduce `{to}` as a narrow interface, protocol, or facade exposing only that surface.",
+        "Update dependents to import `{to}` instead of reaching into `{from}` directly.",
+        "Refactor `{from}` so implementation detail sits behind `{to}` where appropriate.",
+        "Run tests and dependency analysis to confirm fan-in on `{from}` has decreased.",
+    ],
 }
 
 _STAGED_STEP_TEMPLATES: Dict[str, List[str]] = {
@@ -71,6 +78,13 @@ _STAGED_STEP_TEMPLATES: Dict[str, List[str]] = {
         "Move remaining files one at a time, validating module boundaries after each.",
         "Update all external references to moved files throughout the codebase.",
         "Run full dependency analysis to confirm no new cycles were introduced.",
+    ],
+    "reduce_fan_in": [
+        "Define the public contract for `{from}` in `{to}` as stubs only — no behavior move yet.",
+        "Switch one dependent at a time to `{to}`, validating after each migration.",
+        "Once all callers use `{to}`, slim `{from}` so it implements the facade behind `{to}`.",
+        "Remove redundant direct imports of `{from}` from modules that now use `{to}`.",
+        "Re-run dependency analysis to verify reduced inbound edges on `{from}`.",
     ],
 }
 
@@ -106,6 +120,7 @@ def _find_task_explainability(tasks: list, action: str, from_target: str) -> dic
         "break_dependency": "break_cycle",
         "split_file": "split_file",
         "extract_utility": "reduce_coupling",
+        "reduce_fan_in": "reduce_coupling",
         "extract_module": "extract_module",
     }
     expected_task_type = action_to_task.get(action, "")
