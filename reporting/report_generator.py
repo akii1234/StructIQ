@@ -9,6 +9,30 @@ from StructIQ.generators.json_writer import read_json_file
 from StructIQ.llm.client import LLMClient
 
 
+def _trend_badge(current_score: float | None, previous_score: float | None) -> str:
+    """Return an HTML span showing score delta vs previous run.
+
+    Green ▲ for improvement, red ▼ for regression, grey — for no change or N/A.
+    """
+    if current_score is None or previous_score is None:
+        return ""
+    delta = round(current_score - previous_score, 1)
+    if delta == 0:
+        return (
+            '<span style="color:#6b7280; font-size:0.75rem; margin-left:0.4rem;">'
+            "— same</span>"
+        )
+    if delta > 0:
+        return (
+            f'<span style="color:#22c55e; font-size:0.75rem; margin-left:0.4rem;">'
+            f"▲ +{delta}</span>"
+        )
+    return (
+        f'<span style="color:#ef4444; font-size:0.75rem; margin-left:0.4rem;">'
+        f"▼ {delta}</span>"
+    )
+
+
 _EXPLAIN_BLOCK = """
 <section id="explain-section" style="margin:2rem 0; padding:1.5rem; background:#111118; border:1px solid #1e1e2e; border-radius:6px;">
   <h3 style="font-family:sans-serif; font-size:1rem; color:#7c6af7; margin-bottom:1rem;">Ask a Question About This Run</h3>
@@ -52,8 +76,16 @@ def generate_report_html(
     arch_insights: dict,
     mod_plan: dict,
     llm_client: "LLMClient | None" = None,
+    previous_insights: dict | None = None,
 ) -> str:
-    """Generate a self-contained HTML report string from structured run data."""
+    """Generate a self-contained HTML report string from structured run data.
+
+    Note: this function renders a simplified report (no domain score cards).
+    Score trend badges require domain cards and are only available through
+    ReportGenerator.generate() (used by reporting/pipeline.py and the /report
+    endpoint). The ``previous_insights`` parameter is accepted for API
+    compatibility but has no effect here.
+    """
     generator = ReportGenerator(llm_client=llm_client)
 
     anti_patterns = arch_insights.get("anti_patterns") or []
@@ -365,6 +397,7 @@ class ReportGenerator:
         labels: dict | None = None,
         descriptions: dict | None = None,
         grade_colors: dict | None = None,
+        prev_score: float | None = None,
     ) -> str:
         _labels = labels or {
             "structural": "STRUCTURAL",
@@ -408,11 +441,16 @@ class ReportGenerator:
         gr = str(gr_raw)
         grade_color = _GRADE_COLORS.get(gr, "#94a3b8")
         score_display = f"{float(sc):.0f}"
+        try:
+            curr_f = float(sc)
+        except (TypeError, ValueError):
+            curr_f = None
+        badge = _trend_badge(curr_f, prev_score)
         return (
             "<div class='card'>"
             f"<div style='color:#94a3b8;font-size:11px;letter-spacing:0.06em'>{esc(_labels.get(dom, dom))}</div>"
             f"<div style='font-size:22px;font-weight:700;margin-top:6px;color:{grade_color}'>"
-            f"{esc(score_display)} / {esc(gr)}</div>"
+            f"{esc(score_display)} / {esc(gr)}{badge}</div>"
             f"<div style='color:#64748b;font-size:12px;margin-top:4px'>{esc(fc)} findings</div>"
             f"<div style='color:#475569;font-size:11px;margin-top:6px;line-height:1.4'>"
             f"{esc(domain_desc)}</div>"
@@ -707,7 +745,12 @@ class ReportGenerator:
         )
         return html.replace("__GRAPH_DATA__", graph_data)
 
-    def generate(self, run_dir: str, run_id: str) -> str:
+    def generate(
+        self,
+        run_dir: str,
+        run_id: str,
+        previous_insights: dict | None = None,
+    ) -> str:
         run_path = Path(run_dir)
         output = read_json_file(str(run_path / "output.json"), {})
         dep_graph = read_json_file(str(run_path / "dependency_graph.json"), {})
@@ -878,11 +921,23 @@ class ReportGenerator:
                 "security": "SECURITY",
                 "migration": "MIGRATION",
             }
+            prev_domain_scores = (previous_insights or {}).get("domain_scores") or {}
+
+            def _to_float(val: object) -> float | None:
+                if val is None or str(val).strip() == "":
+                    return None
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return None
+
             cards_html: list[str] = []
             for dom in order:
                 data = domain_scores.get(dom) if isinstance(domain_scores, dict) else None
                 if not isinstance(data, dict):
                     data = {"score": 100.0, "grade": "A", "finding_count": 0}
+                prev_raw = (prev_domain_scores.get(dom) or {}).get("score")
+                prev_score_val = _to_float(prev_raw)
                 cards_html.append(
                     self._render_domain_card(
                         dom,
@@ -890,21 +945,29 @@ class ReportGenerator:
                         labels=labels,
                         descriptions=_DOMAIN_DESCRIPTIONS,
                         grade_colors=_GRADE_COLORS,
+                        prev_score=prev_score_val,
                     )
                 )
+            prev_overall = _to_float((previous_insights or {}).get("overall_score"))
             overall_line = ""
             if overall_score is not None and str(overall_score).strip() != "":
+                curr = _to_float(overall_score)
+                overall_badge = _trend_badge(curr, prev_overall)
                 overall_line = (
                     "<div style='margin-top:16px;font-size:18px;font-weight:700;color:#e2e8f0'>"
-                    f"Overall health: {esc(overall_score)} / {esc(overall_grade or '')}</div>"
+                    f"Overall health: {esc(overall_score)} / {esc(overall_grade or '')}"
+                    f"{overall_badge}</div>"
                 )
             else:
                 sysd = intel_digest.get("system") if isinstance(intel_digest, dict) else None
                 if isinstance(sysd, dict) and sysd.get("overall_score") is not None:
+                    curr = _to_float(sysd.get("overall_score"))
+                    overall_badge = _trend_badge(curr, prev_overall)
                     overall_line = (
                         "<div style='margin-top:16px;font-size:18px;font-weight:700;color:#e2e8f0'>"
                         f"Overall health: {esc(sysd.get('overall_score'))} / "
-                        f"{esc(sysd.get('overall_grade') or '')}</div>"
+                        f"{esc(sysd.get('overall_grade') or '')}"
+                        f"{overall_badge}</div>"
                     )
             grade_legend = (
                 "<div style='margin-top:10px;font-size:11px;color:#475569;text-align:right'>"

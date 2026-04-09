@@ -15,7 +15,7 @@ from pydantic import BaseModel, field_validator
 
 from StructIQ.api.rate_limiter import RateLimiter
 from StructIQ.config import IS_API_MODE
-from StructIQ.services.run_manager import RunManager
+from StructIQ.services.run_manager import RunManager, DATA_DIR
 from StructIQ.api.models import (
     HealthResponse,
     AnalyzeResponse,
@@ -347,6 +347,44 @@ def modernization_plan(run_id: str, x_api_key: str | None = Header(default=None)
     return payload
 
 
+@app.get("/history/{run_id}")
+def run_history(
+    run_id: str,
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """Return all completed runs for the same repo as the given run, with domain scores."""
+    validate_api_key(x_api_key)
+    current = run_manager.get_status(run_id)
+    if current.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    repo_path = current.get("repo_path", "")
+    if not repo_path:
+        return {"run_id": run_id, "history": []}
+
+    history_runs = run_manager.get_runs_for_repo(repo_path)
+    history = []
+    for r in history_runs:
+        rid = r["run_id"]
+        insights = run_manager.get_architecture_insights(rid)
+        domain_scores = insights.get("domain_scores") or {}
+        history.append(
+            {
+                "run_id": rid,
+                "created_at": r.get("created_at", ""),
+                "overall_score": insights.get("overall_score"),
+                "overall_grade": insights.get("overall_grade"),
+                "domain_scores": {
+                    d: {"score": v.get("score"), "grade": v.get("grade")}
+                    for d, v in domain_scores.items()
+                    if isinstance(v, dict)
+                },
+            }
+        )
+
+    return {"run_id": run_id, "repo_path": repo_path, "history": history}
+
+
 @app.get("/report/{run_id}", response_class=HTMLResponse)
 def report(run_id: str, x_api_key: str | None = Header(default=None)) -> str:
     """Generate and return HTML report for a completed run."""
@@ -363,8 +401,26 @@ def report(run_id: str, x_api_key: str | None = Header(default=None)) -> str:
     try:
         from StructIQ.reporting.pipeline import run_report_pipeline, ReportPipelineError
 
-        run_dir = str(Path("data/runs") / run_id)
-        html = run_report_pipeline(run_dir=run_dir, run_id=run_id)
+        run_dir = str(DATA_DIR / run_id)
+        previous_insights = None
+        try:
+            # repo_path is already in status_payload from the check above
+            _repo = status_payload.get("repo_path", "")
+            if _repo:
+                _history = run_manager.get_runs_for_repo(_repo)
+                _ids = [r["run_id"] for r in _history]
+                if run_id in _ids:
+                    _idx = _ids.index(run_id)
+                    if _idx > 0:
+                        _prev_id = _ids[_idx - 1]
+                        previous_insights = run_manager.get_architecture_insights(_prev_id)
+        except Exception:
+            pass  # trend badges are non-fatal — never let this break the report
+        html = run_report_pipeline(
+            run_dir=run_dir,
+            run_id=run_id,
+            previous_insights=previous_insights,
+        )
         return Path(html).read_text(encoding="utf-8")
     except ReportPipelineError as exc:
         raise HTTPException(status_code=500, detail=str(exc))

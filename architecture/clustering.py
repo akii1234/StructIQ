@@ -4,6 +4,47 @@ from pathlib import Path
 from typing import Any
 
 
+def _extract_hub_candidates(analysis: dict | None, top_n: int = 5) -> set[str]:
+    """Extract file paths that are likely hub files from coupling metrics.
+
+    Uses Ca (afferent coupling) — files with the highest Ca are hub candidates.
+    Returns the top_n files by Ca value (Ca >= 3).
+
+    Path format assumption: coupling_metrics keys must use the same path
+    representation (absolute vs. relative) as the graph node IDs used to build
+    the adjacency dict in ClusteringEngine.cluster(). Both originate from
+    dependency_analysis.json and dependency_graph.json written by Phase 2, so
+    they are consistent in practice. If a mismatch occurs, hub merging silently
+    produces no matches — it does not crash.
+    """
+    analysis = analysis or {}
+    coupling = analysis.get("coupling_metrics") or {}
+    if coupling:
+        by_ca = sorted(
+            (
+                (fp, int((metrics or {}).get("ca", 0) or 0))
+                for fp, metrics in coupling.items()
+                if isinstance(metrics, dict)
+            ),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        return {str(fp) for fp, ca in by_ca[:top_n] if ca >= 3}
+
+    scores = analysis.get("coupling_scores") or []
+    by_ca_list: list[tuple[str, int]] = []
+    for row in scores:
+        if not isinstance(row, dict):
+            continue
+        fp = str(row.get("file", "") or "")
+        if not fp:
+            continue
+        ca = int(row.get("afferent_coupling", 0) or 0)
+        by_ca_list.append((fp, ca))
+    by_ca_list.sort(key=lambda x: x[1], reverse=True)
+    return {fp for fp, ca in by_ca_list[:top_n] if ca >= 3}
+
+
 class ClusteringEngine:
     """Simple, deterministic clustering of files into logical services."""
 
@@ -20,11 +61,12 @@ class ClusteringEngine:
 
         Algorithm:
         1. Group files by parent directory name.
+        1b. Hub-signal pre-merge (high afferent coupling in analysis).
         2. Affinity merge — groups with >=3 cross-group edges merge.
         3. Absorb singletons — groups <3 files merge into most-coupled neighbor.
         4. Assign deterministic service keys.
         """
-        del analysis, services_hint  # reserved for future hints
+        del services_hint  # reserved for future hints
 
         if not isinstance(graph, dict):
             return {}
@@ -85,11 +127,31 @@ class ClusteringEngine:
         def _cross_edges(files_a: set[str], files_b: set[str]) -> int:
             return sum(1 for f in files_a for g in adjacency.get(f, set()) if g in files_b)
 
-        # Step 2: affinity merge — groups with >=3 cross-group edges merge
+        # Step 1b: hub signal — merge groups that all share imports from a high-Ca hub.
+        # The hub file's own group is intentionally excluded from this merge: the hub
+        # (e.g. shared/models.py) belongs to its own directory group and stays there.
+        # Only the groups that *import* the hub are merged together — they are coupled
+        # via their shared dependency, so they likely form one logical service.
+        hub_candidates = _extract_hub_candidates(analysis or {})
+        if hub_candidates:
+            for hub_fp in sorted(hub_candidates):
+                importing_groups: list[str] = []
+                for gk, gfiles in sorted(groups.items()):
+                    for f in gfiles:
+                        if hub_fp in adjacency.get(f, set()):
+                            importing_groups.append(gk)
+                            break
+                if len(importing_groups) >= 2:
+                    base = importing_groups[0]
+                    for other in importing_groups[1:]:
+                        if other in groups and base in groups and other != base:
+                            groups[base] |= groups.pop(other)
+
+        # Step 2: affinity merge
         changed = True
         while changed:
             changed = False
-            keys = sorted(groups.keys())
+            keys = sorted(groups.keys(), key=lambda k: (-len(groups[k]), k))
             for i in range(len(keys)):
                 for j in range(i + 1, len(keys)):
                     k1, k2 = keys[i], keys[j]
@@ -116,13 +178,23 @@ class ClusteringEngine:
                 small_files = groups[small_key]
                 best_key: str | None = None
                 best_count = -1
-                for other_key, other_files in groups.items():
+                best_size = -1
+                for other_key, other_files in sorted(groups.items()):
                     if other_key == small_key:
                         continue
                     count = _cross_edges(small_files, other_files)
-                    same_dir_bonus = 2 if other_key.split("_")[0] == small_key.split("_")[0] else 0
-                    if count + same_dir_bonus > best_count:
-                        best_count = count + same_dir_bonus
+                    same_dir_bonus = (
+                        2 if other_key.split("_")[0] == small_key.split("_")[0] else 0
+                    )
+                    score = count + same_dir_bonus
+                    other_size = len(groups[other_key])
+                    if (score, other_size, other_key) > (
+                        best_count,
+                        best_size,
+                        best_key or "",
+                    ):
+                        best_count = score
+                        best_size = other_size
                         best_key = other_key
                 if best_key is not None:
                     groups[best_key] |= groups.pop(small_key)

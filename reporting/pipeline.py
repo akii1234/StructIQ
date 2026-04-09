@@ -17,12 +17,15 @@ def run_report_pipeline(
     run_dir: str,
     run_id: str,
     logger: logging.Logger | None = None,
+    previous_insights: dict | None = None,
 ) -> str:
     if logger is None:
         logger = get_logger("reporting.pipeline")
 
     try:
-        html = ReportGenerator().generate(run_dir, run_id)
+        html = ReportGenerator().generate(
+            run_dir, run_id, previous_insights=previous_insights
+        )
         out_path = Path(run_dir) / "report.html"
         out_path.write_text(html, encoding="utf-8")
         logger.info("Report written: %s/report.html", run_dir)

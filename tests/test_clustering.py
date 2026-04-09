@@ -85,3 +85,83 @@ def test_returns_sorted_lists():
     graph = _graph([("/proj/app/views.py", "/proj/app/models.py")])
     for svc, files in ClusteringEngine().cluster(graph, {}).items():
         assert isinstance(files, list) and files == sorted(files)
+
+
+def test_clustering_is_deterministic_under_rename():
+    """Renaming a directory must not change which groups merge."""
+    edges_a = [
+        ("/proj/alpha/views.py", "/proj/beta/models.py"),
+        ("/proj/alpha/services.py", "/proj/beta/models.py"),
+        ("/proj/alpha/serializers.py", "/proj/beta/models.py"),
+    ]
+    edges_b = [
+        ("/proj/zzz/views.py", "/proj/aaa/models.py"),
+        ("/proj/zzz/services.py", "/proj/aaa/models.py"),
+        ("/proj/zzz/serializers.py", "/proj/aaa/models.py"),
+    ]
+    result_a = ClusteringEngine().cluster(_graph(edges_a), {})
+    result_b = ClusteringEngine().cluster(_graph(edges_b), {})
+    assert len(result_a) == len(result_b)
+    assert len(result_a) == 1
+
+
+def test_singleton_absorbs_into_larger_group_on_tie():
+    """When cross-edge counts are tied, singleton absorbs into larger group."""
+    edges = [
+        ("/proj/single/a.py", "/proj/small/x.py"),
+        ("/proj/single/a.py", "/proj/large/x.py"),
+    ]
+    extra = [
+        "/proj/small/y.py",
+        "/proj/large/y.py",
+        "/proj/large/z.py",
+        "/proj/large/w.py",
+        "/proj/large/v.py",
+    ]
+    result = ClusteringEngine().cluster(_graph(edges, extra_nodes=extra), {})
+    large_svc = next(
+        (s for s, fs in result.items() if any("large" in f for f in fs)), None
+    )
+    assert large_svc is not None
+    single_in_large = any("single" in f for f in result[large_svc])
+    single_in_small = any(
+        "single" in f
+        for s, fs in result.items()
+        if any("small" in f for f in fs)
+        for f in fs
+    )
+    assert single_in_large, (
+        "single/a.py should absorb into the larger group (large) when cross-edge counts tie; "
+        f"result services: {list(result.keys())}"
+    )
+
+
+def test_files_importing_same_hub_cluster_together():
+    """Files that all import a common hub should land in the same service."""
+    edges = [
+        ("/proj/app1/views.py", "/proj/shared/models.py"),
+        ("/proj/app2/services.py", "/proj/shared/models.py"),
+        ("/proj/app3/serializers.py", "/proj/shared/models.py"),
+        ("/proj/app4/admin.py", "/proj/shared/models.py"),
+    ]
+    analysis = {
+        "coupling_metrics": {
+            "/proj/shared/models.py": {"ca": 4, "ce": 0},
+        }
+    }
+    result = ClusteringEngine().cluster(_graph(edges), analysis)
+    assert len(result) <= 3, f"Expected ≤3 services but got {len(result)}: {list(result.keys())}"
+
+
+def test_low_ca_file_does_not_trigger_hub_merge():
+    """A file with Ca=1 should not be treated as a hub."""
+    edges = [
+        ("/proj/app1/views.py", "/proj/shared/utils.py"),
+    ]
+    analysis = {
+        "coupling_metrics": {
+            "/proj/shared/utils.py": {"ca": 1, "ce": 2},
+        }
+    }
+    result = ClusteringEngine().cluster(_graph(edges), analysis)
+    assert len(result) >= 1

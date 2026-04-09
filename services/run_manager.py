@@ -171,6 +171,7 @@ class RunManager:
                 "run_id": run_id,
                 "status": state["status"],
                 "progress": state["progress"],
+                "repo_path": state.get("repo_path", ""),
                 "phase2_status": self._derive_phase2_status(
                     state["status"], state.get("phase2_error")
                 ),
@@ -190,6 +191,7 @@ class RunManager:
                 "run_id": run_id,
                 "status": snap_status,
                 "progress": snapshot.get("progress", {}),
+                "repo_path": snapshot.get("repo_path", ""),
                 "phase2_status": self._derive_phase2_status(
                     snap_status, snapshot.get("phase2_error")
                 ),
@@ -301,6 +303,16 @@ class RunManager:
                 }
             )
         return result
+
+    def get_runs_for_repo(self, repo_path: str) -> list[dict]:
+        """Return completed runs for a given repo path, sorted by created_at ascending."""
+        all_runs = self.list_runs()
+        repo_runs = [
+            r
+            for r in all_runs
+            if r.get("repo_path") == repo_path and r.get("status") == "completed"
+        ]
+        return sorted(repo_runs, key=lambda r: r.get("created_at", ""))
 
     def _execute_run(self, run_id: str, resume: bool) -> None:
         """Run orchestrator and update run state."""
@@ -597,6 +609,7 @@ class RunManager:
             "progress": run_state["progress"],
             "processed_files": sorted(processed_files),
             "reason": reason,
+            "repo_path": run_state.get("repo_path", ""),
             "phase2_error": run_state.get("phase2_error"),
             "phase3_error": run_state.get("phase3_error"),
             "phase4_error": run_state.get("phase4_error"),
