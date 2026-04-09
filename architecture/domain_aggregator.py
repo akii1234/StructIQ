@@ -114,7 +114,11 @@ def _score_to_grade(score: float) -> str:
 class DomainAggregator:
     """Aggregate anti-pattern findings into domain scores and composite health."""
 
-    def aggregate(self, anti_patterns: list[dict[str, Any]]) -> dict[str, Any]:
+    def aggregate(
+        self,
+        anti_patterns: list[dict[str, Any]],
+        skipped_domains: set[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Returns:
             {
@@ -127,6 +131,9 @@ class DomainAggregator:
                 "overall_grade": "C",
             }
         """
+        if skipped_domains is None:
+            skipped_domains = set()
+
         domain_findings: dict[str, list[dict]] = {d: [] for d in DOMAIN_DETECTORS}
 
         for ap in anti_patterns:
@@ -142,6 +149,17 @@ class DomainAggregator:
         weighted_sum = 0.0
 
         for domain, findings in domain_findings.items():
+            if domain in skipped_domains:
+                domain_scores[domain] = {
+                    "score": None,
+                    "grade": "N/A",
+                    "finding_count": 0,
+                    "top_findings": [],
+                    "note": f"{domain.capitalize()} domain not assessed — no relevant files detected.",
+                }
+                weighted_sum += 100.0 * DOMAIN_WEIGHTS[domain]
+                continue
+
             penalty = 0
             for f in findings:
                 base = FINDING_PENALTIES.get(f.get("type", ""), 3)

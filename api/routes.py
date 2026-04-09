@@ -3,18 +3,28 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import concurrent.futures
 import os
 import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, field_validator
 
+from StructIQ.api.rate_limiter import RateLimiter
 from StructIQ.config import IS_API_MODE
 from StructIQ.services.run_manager import RunManager
-from StructIQ.api.models import HealthResponse, AnalyzeResponse, ExplainResponse, RunSummary, CompareResponse, CompareMetricResult
+from StructIQ.api.models import (
+    HealthResponse,
+    AnalyzeResponse,
+    ExplainResponse,
+    RunSummary,
+    CompareResponse,
+    CompareMetricResult,
+    OverrideRequest,
+)
 
 
 class AnalyzeRequest(BaseModel):
@@ -83,6 +93,15 @@ active_runs = 0
 MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "5"))
 _active_runs_lock = threading.Lock()
 
+_analyze_limiter = RateLimiter(
+    max_requests=int(os.getenv("ANALYZE_RATE_LIMIT", "20")),
+    window_seconds=600,
+)
+_explain_limiter = RateLimiter(
+    max_requests=int(os.getenv("EXPLAIN_RATE_LIMIT", "60")),
+    window_seconds=600,
+)
+
 
 def validate_api_key(x_api_key: str | None) -> None:
     if not IS_API_MODE:
@@ -136,6 +155,12 @@ def analyze(request: AnalyzeRequest, x_api_key: str | None = Header(default=None
     global active_runs
     validate_api_key(x_api_key)
     if IS_API_MODE:
+        _key = x_api_key or "anonymous"
+        if not _analyze_limiter.is_allowed(_key):
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Try again later.",
+            )
         with _active_runs_lock:
             if active_runs >= MAX_CONCURRENT_RUNS:
                 raise HTTPException(status_code=429, detail="Too many requests")
@@ -183,6 +208,55 @@ def results(run_id: str, x_api_key: str | None = Header(default=None)) -> dict:
     if not payload:
         raise HTTPException(status_code=404, detail="Results not found")
     return payload
+
+
+@app.post("/runs/{run_id}/overrides")
+def add_override(
+    run_id: str,
+    request: OverrideRequest,
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """Mark a finding as intentional, false positive, or deferred."""
+    validate_api_key(x_api_key)
+    mgr = run_manager.get_override_manager(run_id)
+    if mgr is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    entry = mgr.add(
+        ap_type=request.ap_type,
+        file=request.file,
+        reason=request.reason,
+        note=request.note,
+    )
+    return {"status": "ok", "override": entry}
+
+
+@app.get("/runs/{run_id}/overrides")
+def list_overrides(
+    run_id: str,
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """List all overrides for a run."""
+    validate_api_key(x_api_key)
+    mgr = run_manager.get_override_manager(run_id)
+    if mgr is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return {"run_id": run_id, "overrides": mgr.list()}
+
+
+@app.delete("/runs/{run_id}/overrides")
+def remove_override(
+    run_id: str,
+    ap_type: str = Query(..., description="Anti-pattern type"),
+    file: str | None = Query(None),
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """Remove a specific override."""
+    validate_api_key(x_api_key)
+    mgr = run_manager.get_override_manager(run_id)
+    if mgr is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    removed = mgr.remove(ap_type, file)
+    return {"status": "removed" if removed else "not_found"}
 
 
 @app.get("/dependency/graph/{run_id}")
@@ -331,6 +405,13 @@ def review(run_id: str, x_api_key: str | None = Header(default=None)) -> dict:
 def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header(default=None)) -> ExplainResponse:
     """Answer a plain-English question about a completed run using the modernization plan."""
     validate_api_key(x_api_key)
+    if IS_API_MODE:
+        _key = x_api_key or "anonymous"
+        if not _explain_limiter.is_allowed(_key):
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Try again later.",
+            )
     status_payload = run_manager.get_status(run_id)
     run_status = status_payload.get("status")
     if run_status == "not_found" or not run_status:
@@ -395,8 +476,26 @@ def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header
     )
     user_message = f"Context: {json.dumps(context_payload)}\n\nQuestion: {request.question}"
 
+    _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        response = _llm_client.generate_json(system_prompt, user_message)
+        future = _executor.submit(
+            lambda: _llm_client.generate_json(
+                system_prompt,
+                user_message,
+                max_tokens=300,
+            )
+        )
+        try:
+            response = future.result(timeout=30)
+        except concurrent.futures.TimeoutError:
+            # Shutdown without waiting — the LLM call continues in the background
+            # and its result is discarded when the thread eventually completes.
+            _executor.shutdown(wait=False)
+            return ExplainResponse(
+                run_id=run_id,
+                question=request.question,
+                answer="Analysis timed out. Please try a more specific question.",
+            )
         answer = str(response.get("answer", "")).strip() if isinstance(response, dict) else ""
         if not answer:
             raise HTTPException(status_code=500, detail="LLM returned an empty answer")
@@ -405,6 +504,8 @@ def explain(run_id: str, request: ExplainRequest, x_api_key: str | None = Header
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"LLM error: {exc}") from exc
+    finally:
+        _executor.shutdown(wait=False)
 
 
 @app.get("/compare/{run_id_a}/{run_id_b}", response_model=CompareResponse)

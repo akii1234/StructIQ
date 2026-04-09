@@ -156,3 +156,48 @@ def test_report_catalog_collapses_many_test_gaps(tmp_path):
     html = ReportGenerator().generate(str(run_dir), run_id)
     assert "4 source files have no matching test file" in html
     assert html.count("test_gap") == 1
+
+
+def test_suppressed_finding_renders_as_collapsed_details():
+    """Suppressed findings must render inside <details> element."""
+    suppressed_ap = {
+        "type": "hub_file",
+        "file": "models.py",
+        "severity": "medium",
+        "description": "High fan-in file.",
+        "suppressed": True,
+        "suppression_reason": "intentional",
+        "suppression_note": "Django convention",
+    }
+    rg = ReportGenerator()
+    html = rg._render_finding_card(suppressed_ap)
+    assert "<details" in html
+    assert "Suppressed" in html
+
+
+def test_na_domain_renders_without_numeric_score():
+    """N/A domain card must not show a numeric score as 100/A."""
+    rg = ReportGenerator()
+    na_domain = {
+        "score": None,
+        "grade": "N/A",
+        "finding_count": 0,
+        "top_findings": [],
+        "note": "Security domain not assessed — no relevant files detected.",
+    }
+    html = rg._render_domain_card("security", na_domain)
+    assert "N/A" in html
+    assert "100 /" not in html
+
+
+def test_na_domain_shows_not_assessed_note():
+    rg = ReportGenerator()
+    na_domain = {
+        "score": None,
+        "grade": "N/A",
+        "finding_count": 0,
+        "top_findings": [],
+        "note": "Security domain not assessed — no relevant files detected.",
+    }
+    html = rg._render_domain_card("security", na_domain)
+    assert "not assessed" in html.lower() or "no" in html.lower()

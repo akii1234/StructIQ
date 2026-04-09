@@ -105,7 +105,7 @@ def test_lambda_findings_in_security_domain():
 
 def test_score_floor_is_five_not_zero():
     """When penalties exceed 100, domain score must floor at 5.0, not 0.0."""
-    # 14 hub_file high: 14 × 5 × 1.5 = 105 penalty (calibrated hub_file weight)
+    # 14 hub_file high: 14 × int(5 × 1.5) = 14 × 7 = 98 penalty (int() truncates 7.5 → 7)
     aps = [{"type": "hub_file", "severity": "high"} for _ in range(14)]
     result = DomainAggregator().aggregate(aps)
     score = result["domain_scores"]["structural"]["score"]
@@ -131,7 +131,11 @@ def test_typical_startup_scores_mid_range():
     assert 45 <= result["overall_score"] <= 80
 
 
-def test_monolith_scores_d_not_floor():
+def test_monolith_scores_low_but_not_floor():
+    # 7 hub_file high: 7 × int(5×1.5) = 7×7 = 49
+    # 1 cycle high: int(15×1.5) = 22
+    # 1 concentration_risk medium: int(6×1.0) = 6
+    # Total penalty: 77 → score = max(5.0, 100-77) = 23.0/F
     aps = (
         [{"type": "hub_file", "severity": "high"}] * 7
         + [{"type": "cycle", "severity": "high"}]
@@ -139,7 +143,28 @@ def test_monolith_scores_d_not_floor():
     )
     result = DomainAggregator().aggregate(aps)
     score = result["domain_scores"]["structural"]["score"]
-    assert 15 <= score <= 50, f"Monolith structural score should be 15-50, got {score}"
+    assert 5.0 < score <= 35, f"Monolith structural score should be above floor but ≤35 (F range), got {score}"
+
+
+def test_security_domain_na_when_skipped():
+    result = DomainAggregator().aggregate([], skipped_domains={"security"})
+    sec = result["domain_scores"]["security"]
+    assert sec["score"] is None
+    assert sec["grade"] == "N/A"
+    assert "not assessed" in sec["note"].lower()
+
+
+def test_skipped_domain_does_not_penalise_overall_score():
+    result_skipped = DomainAggregator().aggregate([], skipped_domains={"security"})
+    result_all = DomainAggregator().aggregate([])
+    assert result_skipped["overall_score"] == result_all["overall_score"]
+
+
+def test_other_domains_unaffected_when_security_skipped():
+    aps = [{"type": "cycle", "severity": "high"}]
+    result = DomainAggregator().aggregate(aps, skipped_domains={"security"})
+    assert result["domain_scores"]["structural"]["grade"] != "N/A"
+    assert result["domain_scores"]["security"]["grade"] == "N/A"
 
 
 def test_grade_thresholds():

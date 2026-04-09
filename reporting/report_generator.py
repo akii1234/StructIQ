@@ -132,27 +132,7 @@ def generate_report_html(
         for ap in anti_patterns:
             if not isinstance(ap, dict):
                 continue
-            ap_type = str(ap.get("type", "unknown"))
-            severity = str(ap.get("severity", ""))
-            sev_color = "#ef4444" if severity == "high" else "#f59e0b" if severity == "medium" else "#22c55e"
-            subject = ap.get("file") or ap.get("module") or ", ".join(ap.get("files", [])[:3])
-            desc = ap.get("description", "")
-            extra = ""
-            if ap_type == "high_coupling":
-                extra = (
-                    f"<div style='color:#94a3b8;font-size:12px'>"
-                    f"Afferent: {esc(ap.get('afferent_coupling', 0))} | "
-                    f"Efferent: {esc(ap.get('efferent_coupling', 0))}</div>"
-                )
-            cards.append(
-                "<div style='background:#1e293b;border:1px solid #334155;border-radius:12px;padding:12px;margin-bottom:12px'>"
-                f"<div><span style='background:{sev_color};color:#0f172a;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700'>{esc(ap_type)}</span> "
-                f"<span style='color:#94a3b8;font-size:12px'>Severity: {esc(severity)}</span></div>"
-                f"<div style='color:#f1f5f9;font-weight:600;margin-top:6px'>{esc(subject)}</div>"
-                f"<div style='color:#cbd5e1;font-size:13px;margin-top:4px'>{esc(desc)}</div>"
-                f"{extra}"
-                "</div>"
-            )
+            cards.append(generator._render_finding_card(ap))
         return "".join(cards)
 
     def tasks_table() -> str:
@@ -291,6 +271,153 @@ def generate_report_html(
 class ReportGenerator:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self._llm_client = llm_client
+
+    @staticmethod
+    def _esc(val: object) -> str:
+        text = str(val)
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+
+    def _render_finding_card_inner(self, ap: dict) -> str:
+        ap_type = str(ap.get("type", "unknown"))
+        severity = str(ap.get("severity", ""))
+        sev_color = (
+            "#ef4444"
+            if severity == "high"
+            else "#f59e0b"
+            if severity == "medium"
+            else "#22c55e"
+        )
+        subject = ap.get("file") or ap.get("module") or ", ".join(
+            str(x) for x in (ap.get("files") or [])[:3]
+        )
+        desc = ap.get("description", "")
+        effort = ap.get("effort", "")
+        metrics = ap.get("metrics")
+        met_str = ""
+        if isinstance(metrics, dict) and metrics:
+            met_str = (
+                "<div style='color:#64748b;font-size:11px;margin-top:4px'>"
+                f"{self._esc(json.dumps(metrics)[:240])}</div>"
+            )
+        extra = ""
+        if ap_type == "high_coupling":
+            extra = (
+                f"<div style='color:#94a3b8;font-size:12px'>"
+                f"Afferent: {self._esc(ap.get('afferent_coupling', 0))} | "
+                f"Efferent: {self._esc(ap.get('efferent_coupling', 0))}</div>"
+            )
+        eff_badge = ""
+        if effort:
+            eff_badge = (
+                "<span style='background:#334155;color:#e2e8f0;padding:2px 8px;"
+                "border-radius:999px;font-size:10px;margin-left:6px'>"
+                f"{self._esc(effort)} effort</span>"
+            )
+        return (
+            "<div style='background:#0f172a;border:1px solid #334155;border-radius:8px;"
+            "padding:10px;margin-bottom:8px'>"
+            "<span style='background:#475569;color:#f1f5f9;padding:2px 8px;"
+            "border-radius:4px;font-size:11px'>"
+            f"{self._esc(ap_type)}</span> "
+            f"<span style='background:{sev_color};color:#0f172a;padding:2px 8px;"
+            "border-radius:999px;font-size:10px;font-weight:700'>"
+            f"{self._esc(severity)}</span>"
+            f"{eff_badge}"
+            f"<div style='color:#f1f5f9;font-weight:600;margin-top:6px'>{self._esc(subject)}</div>"
+            f"<div style='color:#cbd5e1;font-size:13px;margin-top:4px'>{self._esc(desc)}</div>"
+            f"{extra}{met_str}</div>"
+        )
+
+    def _render_finding_card(self, ap: dict) -> str:
+        inner = self._render_finding_card_inner(ap)
+        if ap.get("suppressed"):
+            esc = self._esc
+            reason = esc(str(ap.get("suppression_reason", "")))
+            note = esc(str(ap.get("suppression_note", "")))
+            ap_type = esc(str(ap.get("type", "unknown")))
+            subject = ap.get("file") or ap.get("module") or ", ".join(
+                str(x) for x in (ap.get("files") or [])[:3]
+            )
+            subj_esc = esc(subject)
+            return (
+                '<details style="margin-bottom:0.5rem;">'
+                '<summary style="color:#6b7280;font-size:0.8rem;cursor:pointer;">'
+                f"[Suppressed: {reason}] {ap_type} — {subj_esc}"
+                "</summary>"
+                f"{inner}"
+                '<p style="color:#6b7280;font-size:0.75rem;margin-top:0.5rem;">'
+                f"Suppression note: {note}"
+                "</p>"
+                "</details>"
+            )
+        return inner
+
+    def _render_domain_card(
+        self,
+        domain_key: str,
+        data: dict,
+        *,
+        labels: dict | None = None,
+        descriptions: dict | None = None,
+        grade_colors: dict | None = None,
+    ) -> str:
+        _labels = labels or {
+            "structural": "STRUCTURAL",
+            "complexity": "COMPLEXITY",
+            "maintainability": "MAINTAINABILITY",
+            "security": "SECURITY",
+            "migration": "MIGRATION",
+        }
+        _descriptions = descriptions or {
+            "structural": "Cycles, hub files, coupling",
+            "complexity": "File size, function density",
+            "maintainability": "Tests, boundaries, module size",
+            "security": "IaC, IAM, Lambda hygiene",
+            "migration": "Config, abstraction layers",
+        }
+        _GRADE_COLORS = grade_colors or {
+            "A": "#22c55e",
+            "B": "#84cc16",
+            "C": "#eab308",
+            "D": "#f97316",
+            "F": "#ef4444",
+        }
+        esc = self._esc
+        dom = domain_key
+        gr_raw = data.get("grade", "—")
+        sc = data.get("score")
+        fc = data.get("finding_count", 0)
+        note = str(data.get("note") or "")
+        domain_desc = _descriptions.get(dom, "")
+
+        if gr_raw == "N/A" or sc is None:
+            return (
+                "<div class='card'>"
+                f"<div style='color:#94a3b8;font-size:11px;letter-spacing:0.06em'>{esc(_labels.get(dom, dom))}</div>"
+                "<div style='font-size:22px;font-weight:700;margin-top:6px;color:#6b7280'>N/A</div>"
+                f"<div style='color:#6b7280;font-size:12px;margin-top:8px;line-height:1.4'>{esc(note)}</div>"
+                f"<div style='color:#475569;font-size:11px;margin-top:6px;line-height:1.4'>{esc(domain_desc)}</div>"
+                "</div>"
+            )
+
+        gr = str(gr_raw)
+        grade_color = _GRADE_COLORS.get(gr, "#94a3b8")
+        score_display = f"{float(sc):.0f}"
+        return (
+            "<div class='card'>"
+            f"<div style='color:#94a3b8;font-size:11px;letter-spacing:0.06em'>{esc(_labels.get(dom, dom))}</div>"
+            f"<div style='font-size:22px;font-weight:700;margin-top:6px;color:{grade_color}'>"
+            f"{esc(score_display)} / {esc(gr)}</div>"
+            f"<div style='color:#64748b;font-size:12px;margin-top:4px'>{esc(fc)} findings</div>"
+            f"<div style='color:#475569;font-size:11px;margin-top:6px;line-height:1.4'>"
+            f"{esc(domain_desc)}</div>"
+            "</div>"
+        )
 
     def _generate_narrative(
         self,
@@ -754,23 +881,16 @@ class ReportGenerator:
             cards_html: list[str] = []
             for dom in order:
                 data = domain_scores.get(dom) if isinstance(domain_scores, dict) else None
-                if isinstance(data, dict):
-                    sc = data.get("score", "—")
-                    gr = data.get("grade", "—")
-                    fc = data.get("finding_count", 0)
-                else:
-                    sc, gr, fc = "—", "—", 0
-                grade_color = _GRADE_COLORS.get(str(gr), "#94a3b8")
-                domain_desc = _DOMAIN_DESCRIPTIONS.get(dom, "")
+                if not isinstance(data, dict):
+                    data = {"score": 100.0, "grade": "A", "finding_count": 0}
                 cards_html.append(
-                    "<div class='card'>"
-                    f"<div style='color:#94a3b8;font-size:11px;letter-spacing:0.06em'>{labels[dom]}</div>"
-                    f"<div style='font-size:22px;font-weight:700;margin-top:6px;color:{grade_color}'>"
-                    f"{esc(sc)} / {esc(gr)}</div>"
-                    f"<div style='color:#64748b;font-size:12px;margin-top:4px'>{esc(fc)} findings</div>"
-                    f"<div style='color:#475569;font-size:11px;margin-top:6px;line-height:1.4'>"
-                    f"{esc(domain_desc)}</div>"
-                    "</div>"
+                    self._render_domain_card(
+                        dom,
+                        data,
+                        labels=labels,
+                        descriptions=_DOMAIN_DESCRIPTIONS,
+                        grade_colors=_GRADE_COLORS,
+                    )
                 )
             overall_line = ""
             if overall_score is not None and str(overall_score).strip() != "":
@@ -864,55 +984,7 @@ class ReportGenerator:
             return "<div class='surface'>" + "".join(parts) + "</div>"
 
         def ap_catalog_block(ap: dict) -> str:
-            ap_type = str(ap.get("type", "unknown"))
-            severity = str(ap.get("severity", ""))
-            sev_color = (
-                "#ef4444"
-                if severity == "high"
-                else "#f59e0b"
-                if severity == "medium"
-                else "#22c55e"
-            )
-            subject = ap.get("file") or ap.get("module") or ", ".join(
-                str(x) for x in (ap.get("files") or [])[:3]
-            )
-            desc = ap.get("description", "")
-            effort = ap.get("effort", "")
-            metrics = ap.get("metrics")
-            met_str = ""
-            if isinstance(metrics, dict) and metrics:
-                met_str = (
-                    "<div style='color:#64748b;font-size:11px;margin-top:4px'>"
-                    f"{esc(json.dumps(metrics)[:240])}</div>"
-                )
-            extra = ""
-            if ap_type == "high_coupling":
-                extra = (
-                    f"<div style='color:#94a3b8;font-size:12px'>"
-                    f"Afferent: {esc(ap.get('afferent_coupling', 0))} | "
-                    f"Efferent: {esc(ap.get('efferent_coupling', 0))}</div>"
-                )
-            eff_badge = ""
-            if effort:
-                eff_badge = (
-                    "<span style='background:#334155;color:#e2e8f0;padding:2px 8px;"
-                    "border-radius:999px;font-size:10px;margin-left:6px'>"
-                    f"{esc(effort)} effort</span>"
-                )
-            return (
-                "<div style='background:#0f172a;border:1px solid #334155;border-radius:8px;"
-                "padding:10px;margin-bottom:8px'>"
-                "<span style='background:#475569;color:#f1f5f9;padding:2px 8px;"
-                "border-radius:4px;font-size:11px'>"
-                f"{esc(ap_type)}</span> "
-                f"<span style='background:{sev_color};color:#0f172a;padding:2px 8px;"
-                "border-radius:999px;font-size:10px;font-weight:700'>"
-                f"{esc(severity)}</span>"
-                f"{eff_badge}"
-                f"<div style='color:#f1f5f9;font-weight:600;margin-top:6px'>{esc(subject)}</div>"
-                f"<div style='color:#cbd5e1;font-size:13px;margin-top:4px'>{esc(desc)}</div>"
-                f"{extra}{met_str}</div>"
-            )
+            return self._render_finding_card(ap)
 
         def render_anti_pattern_catalog() -> str:
             from StructIQ.architecture.domain_aggregator import DOMAIN_DETECTORS

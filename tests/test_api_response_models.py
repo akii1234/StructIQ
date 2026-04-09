@@ -36,3 +36,13 @@ def test_runs_endpoint_returns_list():
     resp = client.get("/runs")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+def test_explain_rate_limiter_blocks_after_quota():
+    from StructIQ.api.rate_limiter import RateLimiter
+
+    rl = RateLimiter(max_requests=2, window_seconds=60)
+    assert rl.is_allowed("user-a") is True
+    assert rl.is_allowed("user-a") is True
+    assert rl.is_allowed("user-a") is False
+    assert rl.is_allowed("user-b") is True

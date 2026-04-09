@@ -243,10 +243,11 @@ def run_architecture_pipeline(
             services = {}
 
         # Terraform infrastructure anti-patterns (non-fatal)
+        tf_scan = read_json_file(str(Path(run_dir) / "terraform_scan.json"), {})
+        _has_terraform = bool(tf_scan and tf_scan.get("resources"))
         try:
             from StructIQ.architecture.terraform_analyzer import TerraformAnalyzer
 
-            tf_scan = read_json_file(str(Path(run_dir) / "terraform_scan.json"), {})
             tf_result = TerraformAnalyzer().analyze(graph, analysis, tf_scan=tf_scan or None)
             tf_anti_patterns = tf_result.get("anti_patterns") or []
             if tf_anti_patterns:
@@ -333,7 +334,8 @@ def run_architecture_pipeline(
 
         from StructIQ.architecture.domain_aggregator import DomainAggregator
 
-        domain_result = DomainAggregator().aggregate(anti_patterns)
+        _skipped = set() if _has_terraform else {"security"}
+        domain_result = DomainAggregator().aggregate(anti_patterns, skipped_domains=_skipped)
 
         arch_for_summary = {**arch_result, "anti_patterns": anti_patterns}
         insights = {

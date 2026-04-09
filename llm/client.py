@@ -58,23 +58,35 @@ class LLMClient:
             self._openai_client = OpenAI(**kwargs)
             self._anthropic_client = None
 
-    def generate_json(self, prompt: str, content: str) -> Dict[str, Any]:
+    def generate_json(
+        self,
+        prompt: str,
+        content: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> Dict[str, Any]:
         """Generate structured JSON output. All errors are raised as ValueError."""
         try:
             if self.provider == "anthropic":
-                return self._call_anthropic(prompt, content)
-            return self._call_openai_compat(prompt, content)
+                return self._call_anthropic(prompt, content, max_tokens=max_tokens)
+            return self._call_openai_compat(prompt, content, max_tokens=max_tokens)
         except (ValueError, json.JSONDecodeError):
             raise
         except Exception as exc:
             raise ValueError(f"LLM error ({self.provider}/{self.model}): {exc}") from exc
 
-    def _call_openai_compat(self, prompt: str, content: str) -> Dict[str, Any]:
+    def _call_openai_compat(
+        self,
+        prompt: str,
+        content: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> Dict[str, Any]:
         assert self._openai_client is not None
-        response = self._openai_client.chat.completions.create(
-            model=self.model,
-            response_format={"type": "json_object"},
-            messages=[
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+            "messages": [
                 {
                     "role": "system",
                     "content": "You are a precise code analysis assistant. Always return valid JSON.",
@@ -84,16 +96,25 @@ class LLMClient:
                     "content": f"{prompt}\n\nCode:\n{content}",
                 },
             ],
-            temperature=0,
-        )
+            "temperature": 0,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        response = self._openai_client.chat.completions.create(**kwargs)
         payload = response.choices[0].message.content or "{}"
         return json.loads(payload)
 
-    def _call_anthropic(self, prompt: str, content: str) -> Dict[str, Any]:
+    def _call_anthropic(
+        self,
+        prompt: str,
+        content: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> Dict[str, Any]:
         assert self._anthropic_client is not None
         response = self._anthropic_client.messages.create(
             model=self.model,
-            max_tokens=1024,
+            max_tokens=max_tokens if max_tokens is not None else 1024,
             system=(
                 "You are a precise code analysis assistant. "
                 "Return only valid JSON with no markdown, no code fences, no other text."

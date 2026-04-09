@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -18,6 +19,7 @@ from StructIQ.scanner.file_classifier import FileClassifier
 from StructIQ.scanner.file_scanner import FileScanner
 from StructIQ.scanner.module_extractor import ModuleExtractor
 from StructIQ.services.cache_manager import CacheManager
+from StructIQ.services.run_index import RunIndex
 from StructIQ.utils.logger import get_logger
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "data/runs"))
@@ -31,7 +33,10 @@ class RunManager:
         self._lock = threading.Lock()
         self._shutdown_event = threading.Event()
         self._runs: Dict[str, Dict[str, Any]] = {}
+        _db_path = str(DATA_DIR / "runs.db")
+        self._index = RunIndex(_db_path)
         self._reconcile_interrupted_runs()
+        self._seed_run_index_from_disk()
 
     def _reconcile_interrupted_runs(self) -> None:
         """Mark any in-progress runs as failed on startup."""
@@ -55,9 +60,48 @@ class RunManager:
                 snapshot["reason"] = "interrupted: server restarted"
                 write_json_output(snapshot, str(snapshot_path))
 
+    def _seed_run_index_from_disk(self) -> None:
+        """Warm SQLite index from snapshot.json for runs not yet indexed."""
+        if not DATA_DIR.exists():
+            return
+        for run_dir in DATA_DIR.iterdir():
+            if not run_dir.is_dir():
+                continue
+            rid = run_dir.name
+            if not re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+                rid,
+            ):
+                continue
+            snap = read_json_file(str(run_dir / "snapshot.json"), {})
+            if not snap:
+                continue
+            _err = snap.get("reason") or snap.get("error")
+            self._index.upsert(
+                rid,
+                status=str(snap.get("status", "unknown")),
+                repo_path=str(snap.get("repo_path") or ""),
+                created_at=str(snap.get("created_at") or ""),
+                updated_at=str(snap.get("updated_at") or ""),
+                error=str(_err) if _err is not None else None,
+            )
+
     def start_run(self, repo_path: str, resume: bool = True, enable_llm: bool = False, openai_api_key: str | None = None, llm_provider: str = "openai", llm_model: str | None = None) -> str:
         """Create and start an async run thread."""
         run_id = str(uuid.uuid4())
+        _now = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        self._index.upsert(
+            run_id,
+            status="running",
+            repo_path=repo_path,
+            created_at=_now,
+            updated_at=_now,
+        )
         run_dir = DATA_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -180,12 +224,30 @@ class RunManager:
         analysis_path = DATA_DIR / run_id / "dependency_analysis.json"
         return read_json_file(str(analysis_path), {})
 
+    def get_override_manager(self, run_id: str):
+        """Return an OverrideManager for the given run, or None if run not found."""
+        from StructIQ.services.override_manager import OverrideManager
+
+        if not re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", run_id
+        ):
+            return None
+        run_dir = DATA_DIR / run_id
+        if not run_dir.is_dir():
+            return None
+        return OverrideManager(str(run_dir))
+
     def get_architecture_insights(self, run_id: str) -> Dict[str, Any]:
-        """Return architecture_insights.json payload for run."""
+        """Fetch architecture_insights.json with overrides applied."""
         if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", run_id):
             return {}
-        insights_path = DATA_DIR / run_id / "architecture_insights.json"
-        return read_json_file(str(insights_path), {})
+        run_dir = DATA_DIR / run_id
+        insights = read_json_file(str(run_dir / "architecture_insights.json"), {})
+        mgr_inst = self.get_override_manager(run_id)
+        if mgr_inst and insights.get("anti_patterns"):
+            insights = dict(insights)
+            insights["anti_patterns"] = mgr_inst.apply(insights["anti_patterns"])
+        return insights
 
     def get_modernization_plan(self, run_id: str) -> Dict[str, Any]:
         """Return modernization_plan.json payload for run."""
@@ -224,27 +286,21 @@ class RunManager:
         return str(report_path) if report_path.exists() else None
 
     def list_runs(self) -> list[dict]:
-        """Return summary list of all known runs from disk."""
-        runs = []
-        if not DATA_DIR.exists():
-            return runs
-        for run_dir in sorted(DATA_DIR.iterdir(), reverse=True):
-            if not run_dir.is_dir():
-                continue
-            run_id = run_dir.name
-            if not re.fullmatch(
-                r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", run_id
-            ):
-                continue
-            snapshot = read_json_file(str(run_dir / "snapshot.json"), {})
-            runs.append(
+        """List runs from SQLite index (fast, no per-request directory scan)."""
+        rows = self._index.list_all()
+        result: list[dict] = []
+        for row in rows:
+            result.append(
                 {
-                    "run_id": run_id,
-                    "status": snapshot.get("status", "unknown"),
-                    "progress": snapshot.get("progress", {}),
+                    "run_id": row["run_id"],
+                    "status": row["status"],
+                    "repo_path": row["repo_path"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "progress": {},
                 }
             )
-        return runs
+        return result
 
     def _execute_run(self, run_id: str, resume: bool) -> None:
         """Run orchestrator and update run state."""
@@ -547,3 +603,18 @@ class RunManager:
             "llm_stats": run_state.get("llm_stats") or {},
         }
         write_json_output({**existing, **payload}, str(snapshot_path))
+        snapshot_written = read_json_file(str(snapshot_path), {})
+        _status = snapshot_written.get("status", "unknown")
+        _err = snapshot_written.get("reason") or snapshot_written.get("error")
+        _now = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        self._index.upsert(
+            run_id,
+            status=str(_status),
+            updated_at=_now,
+            error=str(_err) if _err is not None else None,
+        )
