@@ -18,6 +18,78 @@ from StructIQ.llm.client import LLMClient
 from StructIQ.utils.logger import get_logger
 
 
+def _deduplicate_findings(anti_patterns: list[dict]) -> list[dict]:
+    """Remove lower-specificity findings when a more specific finding covers the same file.
+
+    hub_file and god_file are more specific than high_coupling for the same file.
+    """
+    dominant_files: set[str] = {
+        ap["file"]
+        for ap in anti_patterns
+        if ap.get("type") in ("hub_file", "god_file") and isinstance(ap.get("file"), str)
+    }
+    return [
+        ap
+        for ap in anti_patterns
+        if not (
+            ap.get("type") == "high_coupling"
+            and isinstance(ap.get("file"), str)
+            and ap["file"] in dominant_files
+        )
+    ]
+
+
+_DJANGO_CONVENTION_HUB_FILES: frozenset[str] = frozenset({
+    "models.py",
+    "serializers.py",
+})
+
+
+def _detect_framework(file_paths: list[str]) -> str | None:
+    """Infer primary framework from file names."""
+    names = {Path(fp).name for fp in file_paths}
+    if sum(1 for fp in file_paths if Path(fp).name == "apps.py") >= 2:
+        return "django"
+    if "manage.py" in names and "settings.py" in names:
+        return "django"
+    return None
+
+
+def _apply_framework_adjustments(
+    anti_patterns: list[dict],
+    framework: str | None,
+) -> list[dict]:
+    """Adjust findings for known framework conventions.
+
+    Django: models.py and serializers.py have high afferent coupling by design.
+    hub_file → downgrade to medium + add framework_note.
+    high_coupling → suppress entirely.
+    """
+    if not framework or framework != "django":
+        return anti_patterns
+
+    result: list[dict] = []
+    for ap in anti_patterns:
+        if not isinstance(ap, dict):
+            result.append(ap)
+            continue
+        file_name = Path(str(ap.get("file") or "")).name
+        ap_type = ap.get("type", "")
+        if ap_type == "hub_file" and file_name in _DJANGO_CONVENTION_HUB_FILES:
+            adjusted = dict(ap)
+            adjusted["severity"] = "medium"
+            adjusted["framework_note"] = (
+                f"Django {file_name} — high fan-in is expected by the framework. "
+                "Flag only if dependencies cross domain boundaries."
+            )
+            result.append(adjusted)
+        elif ap_type == "high_coupling" and file_name in _DJANGO_CONVENTION_HUB_FILES:
+            continue
+        else:
+            result.append(ap)
+    return result
+
+
 class ArchitecturePipelineError(RuntimeError):
     """Raised when Phase 3 pipeline cannot proceed."""
 
@@ -99,11 +171,17 @@ def run_architecture_pipeline(
                 f"Phase 2 outputs missing — graph: {graph_path}, analysis: {analysis_path}"
             )
 
+        phase1_for_fw = read_json_file(str(Path(run_dir) / "output.json"), {})
+        all_file_paths = [str(f) for f in (phase1_for_fw.get("files") or [])]
+        framework = _detect_framework(all_file_paths)
+        if framework:
+            logger.info("Phase 3: detected framework — %s", framework)
+
         logger.info("Phase 3: processing graph for run %s", run_id)
         processed_graph = GraphProcessor().process(graph)
 
         logger.info("Phase 3: clustering files into services")
-        services = ClusteringEngine().cluster(processed_graph)
+        services = ClusteringEngine().cluster(processed_graph, analysis)
 
         logger.info("Phase 3: detecting architectural anti-patterns")
         content_scan = read_json_file(str(Path(run_dir) / "content_scan.json"), {})
@@ -178,6 +256,9 @@ def run_architecture_pipeline(
                 )
         except Exception as exc:
             logger.warning("Phase 3: Terraform analysis failed (non-fatal): %s", exc)
+
+        anti_patterns = _deduplicate_findings(anti_patterns)
+        anti_patterns = _apply_framework_adjustments(anti_patterns, framework)
 
         recommendations: list[dict] = []
         if enable_llm:

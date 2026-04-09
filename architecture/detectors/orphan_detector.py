@@ -7,6 +7,40 @@ from typing import Any
 from StructIQ.architecture.detectors.base import AntiPatternResult, BaseDetector
 
 
+_FRAMEWORK_ENTRYPOINTS: frozenset[str] = frozenset({
+    # Django bootstrapping — loaded via INSTALLED_APPS/settings, never imported
+    "apps.py",
+    "wsgi.py",
+    "asgi.py",
+    # JS/TS tooling configs — loaded by build tools, never imported
+    "eslint.config.js",
+    "eslint.config.mjs",
+    "eslint.config.cjs",
+    "vite.config.js",
+    "vite.config.ts",
+    "jest.config.js",
+    "jest.config.ts",
+    "webpack.config.js",
+    "webpack.config.ts",
+    "tailwind.config.js",
+    "tailwind.config.ts",
+    "postcss.config.js",
+    "postcss.config.cjs",
+    "next.config.js",
+    "next.config.ts",
+    "babel.config.js",
+    "babel.config.cjs",
+    "prettier.config.js",
+    "prettier.config.cjs",
+    "playwright.config.ts",
+    "playwright.config.js",
+    "cypress.config.ts",
+    "cypress.config.js",
+    "vitest.config.ts",
+    "vitest.config.js",
+})
+
+
 def _skip_orphan_candidate(file_path: str) -> bool:
     bn = Path(file_path).name
     if bn in {"__init__.py", "conftest.py", "setup.py", "manage.py"}:
@@ -15,6 +49,10 @@ def _skip_orphan_candidate(file_path: str) -> bool:
         return True
     stem = Path(file_path).stem
     if "_test" in stem:
+        return True
+    if bn in _FRAMEWORK_ENTRYPOINTS:
+        return True
+    if bn == "settings.py" or (bn.startswith("settings_") and bn.endswith(".py")):
         return True
     return False
 

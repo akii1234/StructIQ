@@ -344,7 +344,7 @@ class DiscoveryOrchestrator:
                 dep_analysis = read_json_file(str(analysis_path), {})
                 if graph and dep_analysis:
                     processed = GraphProcessor().process(graph)
-                    clusters = ClusteringEngine().cluster(processed)
+                    clusters = ClusteringEngine().cluster(processed, dep_analysis)
                     arch_analysis = ArchitectureAnalyzer().analyze(dep_analysis)
                     recommendations = RecommendationEngine().generate(
                         {

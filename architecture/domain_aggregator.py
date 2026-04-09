@@ -52,24 +52,30 @@ DOMAIN_WEIGHTS: dict[str, float] = {
 
 # Score penalty per finding of each type
 FINDING_PENALTIES: dict[str, int] = {
+    # Structural
     "cycle": 15,
-    "god_file": 10,
-    "hub_file": 8,
-    "concentration_risk": 8,
-    "orphan_file": 2,
-    "unstable_dependency": 4,
-    "large_file": 5,
-    "large_function": 6,
-    "too_many_functions": 4,
-    "high_coupling": 5,
-    "test_gap": 4,
+    "god_file": 8,
+    "hub_file": 5,
+    "concentration_risk": 6,
+    "orphan_file": 1,
+    "unstable_dependency": 3,
+    # Complexity
+    "large_file": 4,
+    "large_function": 5,
+    "too_many_functions": 3,
+    "high_coupling": 4,
+    # Maintainability
+    "test_gap": 3,
     "weak_boundary": 3,
     "mega_module": 6,
+    # Migration
     "hardcoded_config": 5,
     "no_abstraction_layer": 12,
+    # Security — Lambda
     "god_lambda": 8,
     "direct_lambda_invocation": 4,
     "shared_iam_role": 5,
+    # Security — IaC
     "open_security_group": 20,
     "wildcard_iam": 20,
     "public_s3_bucket": 18,
@@ -85,13 +91,23 @@ SEVERITY_MULTIPLIERS: dict[str, float] = {
     "low": 0.5,
 }
 
-GRADES = [(90, "A"), (75, "B"), (60, "C"), (45, "D"), (0, "F")]
-
-
 def _score_to_grade(score: float) -> str:
-    for threshold, grade in GRADES:
-        if score >= threshold:
-            return grade
+    """Convert numeric score to letter grade.
+
+    A: ≥85  — clean, only minor issues
+    B: ≥70  — good, some coupling or size issues
+    C: ≥55  — moderate, typical startup-level problems
+    D: ≥35  — significant issues, needs attention
+    F: <35  — severe structural problems
+    """
+    if score >= 85:
+        return "A"
+    if score >= 70:
+        return "B"
+    if score >= 55:
+        return "C"
+    if score >= 35:
+        return "D"
     return "F"
 
 
@@ -132,7 +148,7 @@ class DomainAggregator:
                 mult = SEVERITY_MULTIPLIERS.get(f.get("severity", "medium"), 1.0)
                 penalty += int(base * mult)
 
-            score = max(0.0, 100.0 - penalty)
+            score = max(5.0, 100.0 - penalty)
             grade = _score_to_grade(score)
             top = sorted(
                 findings,

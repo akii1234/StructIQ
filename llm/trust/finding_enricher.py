@@ -43,6 +43,31 @@ def _build_neighbor_map(
     return importers, imports_map
 
 
+def _enrichment_is_plausible(ap: dict[str, Any], enriched_item: dict[str, Any]) -> bool:
+    """Return True if enriched text is plausibly about the correct target.
+
+    Rejects: (1) LLM wrote about the wrong file — target name absent.
+             (2) Trivially short response — less than 70% of template length.
+    """
+    target = ap.get("file") or ap.get("module") or ""
+    name = Path(target).stem if target else ""
+    description = str(enriched_item.get("description") or "")
+    why = str(enriched_item.get("why") or "")
+
+    # Name check — skip for very short names (≤3 chars)
+    if name and len(name) > 3:
+        combined = (description + " " + why).lower()
+        if name.lower() not in combined:
+            return False
+
+    # Length check — reject if shorter than 70% of original template
+    template_len = len(str(ap.get("description") or ""))
+    if template_len > 20 and len(description) < template_len * 0.7:
+        return False
+
+    return True
+
+
 def enrich_findings(
     anti_patterns: list[dict[str, Any]],
     graph: dict[str, Any],
@@ -157,6 +182,14 @@ def enrich_findings(
         for finding_id, (orig_idx, _) in enumerate(high_severity):
             enriched = enriched_by_id.get(finding_id)
             if not enriched:
+                continue
+            if not _enrichment_is_plausible(high_severity[finding_id][1], enriched):
+                logger.warning(
+                    "FindingEnricher: rejected implausible enrichment for %s (%s)",
+                    high_severity[finding_id][1].get("file")
+                    or high_severity[finding_id][1].get("type"),
+                    high_severity[finding_id][1].get("type"),
+                )
                 continue
             if enriched.get("description"):
                 result[orig_idx]["description"] = str(enriched["description"]).strip()

@@ -49,11 +49,16 @@ def test_enriches_medium_high_coupling():
     aps = [_ap(ap_type="high_coupling", severity="medium", afferent_coupling=7, efferent_coupling=0)]
     mock = MagicMock()
     mock.generate_json.return_value = {
-        "enriched": [{"id": 0, "description": "specific desc", "why": "w", "impact_if_ignored": "i"}]
+        "enriched": [{
+            "id": 0,
+            "description": "session_manager.py is specifically over-coordinated.",
+            "why": "w",
+            "impact_if_ignored": "i",
+        }]
     }
     result = enrich_findings(aps, {}, mock)
     mock.generate_json.assert_called_once()
-    assert result[0]["description"] == "specific desc"
+    assert "session_manager" in result[0]["description"]
 
 
 def test_updates_high_severity_fields():
@@ -114,7 +119,12 @@ def test_preserves_low_severity_alongside_high():
     high = _ap(ap_type="high_coupling", severity="high", file="god_file.py")
     mock = MagicMock()
     mock.generate_json.return_value = {
-        "enriched": [{"id": 0, "description": "enriched", "why": "w", "impact_if_ignored": "i"}]
+        "enriched": [{
+            "id": 0,
+            "description": "god_file.py enriched with specific detail.",
+            "why": "w",
+            "impact_if_ignored": "i",
+        }]
     }
     result = enrich_findings([low, high], {}, mock)
     assert result[0].get("enriched_why") is None   # low severity untouched
@@ -180,3 +190,70 @@ def test_enrich_findings_cycle_ap_uses_files_list():
     assert "session.py" in payload["findings"][0]["file"]
     assert "middleware.py" in payload["findings"][0]["file"]
     assert "session.py" in result[0]["description"]
+
+
+def test_enrichment_rejected_when_filename_missing_from_description():
+    aps = [_ap(ap_type="god_file", severity="high", file="session_manager.py")]
+    mock = MagicMock()
+    mock.generate_json.return_value = {
+        "enriched": [{
+            "id": 0,
+            "description": "This file is an orphan with no connections.",
+            "why": "It has zero dependencies.",
+            "impact_if_ignored": "Nothing happens.",
+        }]
+    }
+    result = enrich_findings(aps, {}, mock)
+    assert result[0]["description"] == "generic desc"
+    assert "enriched_why" not in result[0]
+
+
+def test_enrichment_accepted_when_filename_present():
+    aps = [_ap(ap_type="god_file", severity="high", file="session_manager.py")]
+    mock = MagicMock()
+    mock.generate_json.return_value = {
+        "enriched": [{
+            "id": 0,
+            "description": "session_manager.py centralises auth, session, and token refresh.",
+            "why": "14 modules depend on session_manager.py directly.",
+            "impact_if_ignored": "Any change to session_manager.py requires coordinated updates.",
+        }]
+    }
+    result = enrich_findings(aps, {}, mock)
+    assert "session_manager" in result[0]["description"]
+    assert result[0].get("enriched_why") is not None
+
+
+def test_enrichment_rejected_when_description_too_short():
+    original_desc = (
+        "File has unusually high incoming/outgoing dependencies with many modules."
+    )
+    aps = [
+        {
+            "type": "high_coupling",
+            "severity": "medium",
+            "file": "session_manager.py",
+            "description": original_desc,
+        }
+    ]
+    mock = MagicMock()
+    mock.generate_json.return_value = {
+        "enriched": [{"id": 0, "description": "Bad.", "why": "w", "impact_if_ignored": "i"}]
+    }
+    result = enrich_findings(aps, {}, mock)
+    assert result[0]["description"] == original_desc
+
+
+def test_short_filename_skips_name_check():
+    aps = [_ap(ap_type="god_file", severity="high", file="api.py")]
+    mock = MagicMock()
+    mock.generate_json.return_value = {
+        "enriched": [{
+            "id": 0,
+            "description": "This module centralises all external service calls.",
+            "why": "7 consumers depend on it.",
+            "impact_if_ignored": "Any change cascades broadly.",
+        }]
+    }
+    result = enrich_findings(aps, {}, mock)
+    assert result[0].get("enriched_why") is not None

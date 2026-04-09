@@ -723,6 +723,20 @@ class ReportGenerator:
         overall_grade = arch.get("overall_grade")
 
         def render_domain_dashboard() -> str:
+            _DOMAIN_DESCRIPTIONS = {
+                "structural":      "Cycles, hub files, coupling",
+                "complexity":      "File size, function density",
+                "maintainability": "Tests, boundaries, module size",
+                "security":        "IaC, IAM, Lambda hygiene",
+                "migration":       "Config, abstraction layers",
+            }
+            _GRADE_COLORS = {
+                "A": "#22c55e",
+                "B": "#84cc16",
+                "C": "#eab308",
+                "D": "#f97316",
+                "F": "#ef4444",
+            }
             order = [
                 "structural",
                 "complexity",
@@ -746,11 +760,16 @@ class ReportGenerator:
                     fc = data.get("finding_count", 0)
                 else:
                     sc, gr, fc = "—", "—", 0
+                grade_color = _GRADE_COLORS.get(str(gr), "#94a3b8")
+                domain_desc = _DOMAIN_DESCRIPTIONS.get(dom, "")
                 cards_html.append(
                     "<div class='card'>"
                     f"<div style='color:#94a3b8;font-size:11px;letter-spacing:0.06em'>{labels[dom]}</div>"
-                    f"<div style='font-size:22px;font-weight:700;margin-top:6px'>{esc(sc)} / {esc(gr)}</div>"
+                    f"<div style='font-size:22px;font-weight:700;margin-top:6px;color:{grade_color}'>"
+                    f"{esc(sc)} / {esc(gr)}</div>"
                     f"<div style='color:#64748b;font-size:12px;margin-top:4px'>{esc(fc)} findings</div>"
+                    f"<div style='color:#475569;font-size:11px;margin-top:6px;line-height:1.4'>"
+                    f"{esc(domain_desc)}</div>"
                     "</div>"
                 )
             overall_line = ""
@@ -767,11 +786,22 @@ class ReportGenerator:
                         f"Overall health: {esc(sysd.get('overall_score'))} / "
                         f"{esc(sysd.get('overall_grade') or '')}</div>"
                     )
+            grade_legend = (
+                "<div style='margin-top:10px;font-size:11px;color:#475569;text-align:right'>"
+                "Score guide: "
+                "<span style='color:#22c55e'>A ≥85</span> · "
+                "<span style='color:#84cc16'>B ≥70</span> · "
+                "<span style='color:#eab308'>C ≥55</span> · "
+                "<span style='color:#f97316'>D ≥35</span> · "
+                "<span style='color:#ef4444'>F &lt;35</span>"
+                "</div>"
+            )
             return (
                 "<div style='display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px'>"
                 + "".join(cards_html)
                 + "</div>"
                 + overall_line
+                + grade_legend
             )
 
         def render_system_intelligence() -> str:
